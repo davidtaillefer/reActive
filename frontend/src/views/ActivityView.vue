@@ -1,0 +1,223 @@
+<template>
+    <div class="activity-view">
+  <BContainer fluid class="p-3">
+    <BRow class="g-3">
+      <BCol>
+        <ActivityDetails v-if="activity && Object.keys(activity).length" :activity="activity" :icon-url="iconUrl"
+          :sport-name="sportName" />
+        <div v-else class="p-3 bg-white rounded shadow-sm">
+          <p class="mb-0">No activity data provided.</p>
+        </div>
+      </BCol>
+    </BRow>
+
+    <!-- Main Content Section -->
+    <BRow class="g-3" style="height: calc(100vh - 300px);">
+      <BCol cols="12" lg="8" class="d-flex flex-column h-100">
+
+        <!-- Route Map -->
+        <RouteMap v-if="metricsAvailability && metricsAvailability.position" :hrmData="hrmData" mode="load" :hoveredPoint="hoveredPoint"
+          @point-hover="onChildHover" @point-leave="onChildLeave" class="flex-grow-1 shadow-sm" />
+
+        <!-- Muscle Map -->
+        <MuscleMap v-else-if="metricsAvailability && metricsAvailability.muscles" :muscleData="muscleData" :showLegend="true" :hoveredPoint="hoveredPoint"
+          @point-hover="onChildHover" @point-leave="onChildLeave" class="flex-grow-1 shadow-sm" />
+
+        <!-- Fallback -->
+        <div v-else class="p-3 bg-white rounded shadow-sm flex-fill d-flex align-items-center justify-content-center">
+          <p class="mb-0">
+            {{ activity.sport === 'strength'
+              ? 'No muscle data available.'
+              : 'No route data available.' }}
+          </p>
+        </div>
+
+      </BCol>
+
+      <!-- Metrics Section (1/3 width on lg+) -->
+      <BCol lg="4" class="d-flex flex-column h-100">
+        <div class="flex-grow-1 overflow-auto d-flex flex-column gap-3 pe-2">
+          <HeartRateCard v-if="metricsAvailability && metricsAvailability.heartRate" :activity="activity" :hrmData="hrmData"
+            :hoveredPoint="hoveredPoint" @point-hover="onChildHover" @point-leave="onChildLeave" />
+          <SpeedCard v-if="metricsAvailability && metricsAvailability.speed" :activity="activity" :hrmData="hrmData"
+            :hoveredPoint="hoveredPoint" @point-hover="onChildHover" @point-leave="onChildLeave" />
+          <ElevationCard v-if="metricsAvailability && metricsAvailability.elevation" :activity="activity" :hrmData="hrmData"
+            :hoveredPoint="hoveredPoint" @point-hover="onChildHover" @point-leave="onChildLeave" />
+          <CadenceCard v-if="metricsAvailability && metricsAvailability.cadence" :activity="activity" :hrmData="hrmData"
+            :hoveredPoint="hoveredPoint" @point-hover="onChildHover" @point-leave="onChildLeave" />
+          <PowerCard v-if="metricsAvailability && metricsAvailability.power" :activity="activity" :hrmData="hrmData"
+            :hoveredPoint="hoveredPoint" @point-hover="onChildHover" @point-leave="onChildLeave" />
+          <HRZonesCard v-if="metricsAvailability && metricsAvailability.heartRate" :hrmData="hrmData[0]" />
+          <PowerZonesCard v-if="metricsAvailability && metricsAvailability.power" :hrmData="hrmData[0]" />
+          <BRow class="mt-3">
+            <BCol md="6">
+              <TrainingEffectCard title="Aerobic TE" :score="Number(activity.ate)" :benefit="activity.intensity"
+                icon="i-bi-wind" icon-color="text-info" />
+            </BCol>
+
+            <BCol md="6">
+              <TrainingEffectCard title="Anaerobic TE" :score="Number(activity.ante)" icon="i-bi-lightning-fill"
+                icon-color="text-warning" />
+            </BCol>
+          </BRow>
+        </div>
+      </BCol>
+    </BRow>
+    <BRow class="mt-3">
+      <BCol cols="12">
+        <ActivityLapsTable :hrmData="hrmData" :sportUnits="sportUnits" :sportPace="sportPace"/>
+        <ActivitySetsTable :hrmData="hrmData" />
+      </BCol>
+    </BRow>
+
+    <!-- Footer -->
+    <BRow>
+      <BCol>
+        <BCard class="mb-4 mt-3 w-100">
+          <BCardBody>
+            <!-- HRM File -->
+            <BCol cols="auto" class="mb-2 mb-lg-0">
+              <div class="label">HRM File:</div>
+              <div class="value">{{ activity.hrmfile || '-' }}</div>
+            </BCol>
+          </BCardBody>
+        </BCard>
+      </BCol>
+    </BRow>
+  </BContainer>"
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, toRaw } from 'vue'
+import { findNearestPoint } from '@/composables/useHoverMatch'
+import { useRoute } from 'vue-router'
+
+import { BContainer, BRow, BCol, BCard, BCardBody } from 'bootstrap-vue-next'
+
+import ActivityDetails from '@/components/ui/ActivityDetails.vue'
+import RouteMap from '@/components/ui/RouteMap.vue'
+import MuscleMap from '@/components/ui/MuscleMap.vue'
+import HeartRateCard from '@/components/ui/HeartRateCard.vue'
+import SpeedCard from '@/components/ui/SpeedCard.vue'
+import ElevationCard from '@/components/ui/ElevationCard.vue'
+import CadenceCard from '@/components/ui/CadenceCard.vue'
+import PowerCard from '@/components/ui/PowerCard.vue'
+import ActivityLapsTable from '@/components/ui/ActivityLapsTable.vue'
+import ActivitySetsTable from '@/components/ui/ActivitySetsTable.vue'
+
+
+
+const route = useRoute()
+const id = route.params.id
+const activity = ref(
+  route.state?.activity
+    ? JSON.parse(JSON.stringify(route.state.activity))
+    : {}
+);
+const iconUrl = ref('')
+const sportName = ref('')
+const sportUnits = ref(null)
+const sportPace = ref(null)
+const hrmData = ref([]) // Initialize as an array to hold multiple HRM datasets if needed
+const muscleData = ref(null)
+const hrmfile = ref(activity.value.hrmfile || '')
+
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
+
+// Hover sync state (parent-managed)
+const hoveredPoint = ref(null)
+
+// Simple debounce implementation
+function debounce(fn, wait) {
+  let t = null
+  function wrapped(...args) {
+    if (t) clearTimeout(t)
+    t = setTimeout(() => fn(...args), wait)
+  }
+  wrapped.cancel = () => { if (t) clearTimeout(t); t = null }
+  return wrapped
+}
+
+const setHover = debounce((p) => { hoveredPoint.value = p }, 32)
+function onChildHover(payload) { setHover(payload) }
+function onChildLeave() { setHover.cancel(); hoveredPoint.value = null }
+
+async function loadSports() {
+  try {
+    const res = await fetch(apiBaseUrl + 'sports')
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const sports = await res.json()
+    const sport = sports.find((s) => s.id === activity.value.sport)
+    if (sport) {
+      sportName.value = sport.name || ''
+      sportUnits.value = sport.units || 0
+      sportPace.value = sport.pace || 0
+      if (sport.icon) {
+        try {
+          iconUrl.value = `/icons/${sport.icon}`;
+        } catch {
+          iconUrl.value = ''
+        }
+      }
+      console.log("Sport Name, units, and pace marker to pass: ", sportName.value, sportUnits.value, sportPace.value)
+    }
+  } catch (err) {
+    console.error('failed to load sports', err)
+  }
+}
+
+onMounted(async () => {
+  if (!activity.value || Object.keys(activity.value).length === 0) {
+    try {
+      const res = await fetch(apiBaseUrl + `activities/${id}`)
+      if (res.ok) {
+        activity.value = await res.json()
+        hrmfile.value = activity.value.hrmfile || ''
+      } else {
+        console.error('failed to fetch activity', res.status)
+      }
+    } catch (err) {
+      console.error('error fetching activity', err)
+    }
+  }
+
+  if (hrmfile.value) {
+    try {
+      const res = await fetch(apiBaseUrl + `hrm/${hrmfile.value}`)
+      if (res.ok) {
+        const data = await res.json()
+        hrmData.value = [JSON.parse(JSON.stringify(data))]
+        muscleData.value = hrmData.value[0].muscles
+      } else {
+        console.error('failed to fetch HRM data', res.status)
+      }
+    } catch (err) {
+      console.error('error fetching HRM data', err)
+    }
+  }
+
+  await loadSports()
+})
+
+const metricsAvailability = computed(() => {
+  // Rely solely on server-provided availability metadata (hrmData is stored as an array)
+  return hrmData.value?.[0]?.metricsAvailability
+})
+
+</script>
+
+<style scoped>
+.activity-view {
+  /* Full-height container padding */
+  height: 100%;
+  padding: 1rem;
+}
+
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+}
+
+/* Optional: make metrics section scroll nicely */
+</style>

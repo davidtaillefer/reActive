@@ -1,0 +1,21 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2D9CDB"/>
+      <stop offset="50%" stop-color="#9B51E0"/>
+      <stop offset="100%" stop-color="#F2994A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Heart Shape -->
+  <path d="M256 464s-188-112-188-244c0-66 54-120 120-120 40 0 68 20 68 20s28-20 68-20c66 0 120 54 120 120 0 132-188 244-188 244z"
+        fill="url(#grad)"/>
+
+  <!-- EKG Line -->
+  <polyline points="80,260 160,260 200,220 240,300 300,180 360,260 432,260"
+            fill="none"
+            stroke="white"
+            stroke-width="16"
+            stroke-linecap="round"
+            stroke-linejoin="round"/>
+</svg>

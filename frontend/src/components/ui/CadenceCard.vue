@@ -1,0 +1,85 @@
+<template>
+  <MetricCard title="Cadence" :value1="value1" unit1="rpm" :value2="value2" unit2="max rpm" icon="heart-fill"
+    icon-color="text-danger">
+    <Line :data="chartData" :options="chartOptions" />
+  </MetricCard>
+</template>
+
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { Line } from 'vue-chartjs';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
+import MetricCard from './MetricCard.vue';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+
+const props = defineProps({
+  activity: {
+    type: Object,
+    required: true,
+  },
+  hrmData: { type: Array, required: true },
+});
+const value1 = ref(props.activity?.avgcadence?.toFixed(0) || 'N/A');
+const value2 = ref(props.hrmData?.[0]?.max_cadence?.toFixed(0) || 'N/A');
+
+const chartData = computed(() => {
+  const trackData = props.hrmData?.[0]?.track
+    ? Object.values(props.hrmData[0].track)
+    : [];
+
+  const startTime = new Date(props.activity?.date).getTime();
+  return {
+    labels: trackData.map(d => {
+      const currentTime = new Date(d.timestamp).getTime();
+      return (currentTime - startTime) / 60000; // Convert ms to minutes
+    }),
+    datasets: [
+      {
+        label: 'Cadence',
+        data: trackData.map(d => d.cadence || 0),
+        borderColor: 'goldenrod',
+        backgroundColor: 'rgba(255, 215, 0, 0.1)',
+        tension: 0.4,
+        pointRadius: 0,
+        fill: true,
+      },
+    ],
+  };
+});
+
+const chartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      display: false,
+    },
+    tooltip: {
+      callbacks: {
+        label: (context: any) => `${context.parsed.y} bpm`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      type: 'linear', // Treat labels as numbers
+      beginAtZero: true,
+      min: 0,
+      max: Math.max(...props.hrmData?.[0]?.track.map(d => d.x)), // 👈 exact end of your data
+      ticks: {
+        stepSize: 10,
+        autoSkip: true
+      },
+      title: {
+        display: true,
+        text: 'Duration (Minutes)'
+      }
+    },
+    y: {
+      display: true,
+    },
+  },
+};
+
+</script>

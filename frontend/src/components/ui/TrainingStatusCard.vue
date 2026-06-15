@@ -1,0 +1,67 @@
+<template>
+  <BCard class="h-100">
+    <BCardBody>
+      <BCardTitle>
+        <!-- <IBiSpeedometer2 class="text-success fs-3" /> -->
+        Training Status
+      </BCardTitle>
+      <div class="text-center">
+        <div v-if="loading">
+          <BSpinner />
+          <div class="mt-2 text-muted">Loading...</div>
+        </div>
+        <div v-else-if="error">
+          <div class="text-danger">{{ error }}</div>
+        </div>
+        <div v-else-if="status">
+          <div :class="`display-4 text-${status.color} mb-2`">
+            {{ status.label }}
+          </div>
+
+          <p class="text-muted">
+            {{ status.description }}
+          </p>
+        </div>
+      </div>
+    </BCardBody>
+  </BCard>
+</template>
+
+<script setup>
+import { computed, onMounted } from 'vue'
+import { useStats } from '@/composables/useStats'
+
+const { stats, loading, error, fetchStats, getTodayStats } = useStats()
+
+onMounted(() => {
+  fetchStats() // defaults to today
+})
+
+// Mapping
+const statusMap = {
+  0: { label: 'Detraining', color: 'secondary', description: 'Your fitness is declining. Consider increasing activity.' },
+  5: { label: 'Recovery', color: 'info', description: 'Your body is recovering—this is a good time to rest.' },
+  4: { label: 'Maintaining', color: 'primary', description: 'You are maintaining your current fitness level.' },
+  7: { label: 'Productive', color: 'success', description: 'Your fitness is improving—keep it up!' },
+  2: { label: 'Overreaching', color: 'warning', description: 'You may be pushing too hard—consider recovery.' },
+  1: { label: 'Unproductive', color: 'danger', description: 'Your training is not producing expected gains.' },
+  8: { label: 'Strained', color: 'strained', description: 'Your body is under excessive stress—immediate recovery needed.' }
+}
+
+const status = computed(() => {
+  const today = getTodayStats()
+  if (!today) return null
+
+  return statusMap[today.training_status] || {
+    label: 'Unknown',
+    color: 'dark',
+    description: 'No description available.'
+  }
+})
+</script>
+
+  <style scoped>
+  /* Custom colour for 'Strained' status (medium purple) */
+  .bg-strained { background-color: #7e57c2 !important; }
+  .text-strained { color: #6f42c1 !important; }
+  </style>
