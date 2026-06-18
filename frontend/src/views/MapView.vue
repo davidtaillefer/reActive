@@ -1,61 +1,64 @@
 <template>
-  <BContainer fluid class="py-3">
-    <BRow>
+  <div class="h-100 bg-light overflow-auto">
 
-      <!-- Sidebar -->
-      <BCol cols="12" md="2" lg="2" class="mb-3 mb-md-0">
-        <BCard>
-          <BCardBody>
-            <h5 class="mb-3">Filters</h5>
-
-            <!-- Date Range -->
-            <div class="mb-3">
-              <label class="form-label">Start Date</label>
-              <BFormInput type="date" v-model="startDate" />
+    <BContainer fluid class="py-4 px-4 h-100">
+      <BCard class="shadow-sm h-100 d-flex flex-column">
+        <BCardBody class="p-4 d-flex flex-column overflow-hidden">
+          <!-- Header -->
+          <div class="d-flex align-items-center justify-content-between mb-4">
+            <div class="d-flex align-items-center gap-3">
+              <h3 class="mb-0">World Map</h3>
             </div>
+          </div>
 
-            <div class="mb-3">
-              <label class="form-label">End Date</label>
-              <BFormInput type="date" v-model="endDate" />
-            </div>
+          <BRow>
 
-            <!-- Sport Toggles -->
-            <div>
-              <label class="form-label">Sports</label>
-              <div class="d-flex flex-column gap-2">
-                <BFormCheckbox
-                  v-for="sport in sports"
-                  :key="sport.id"
-                  v-model="selectedSports"
-                  :value="sport.id"
-                >
-                  {{ sport.name }}
-                </BFormCheckbox>
-              </div>
-            </div>
-            <BFormCheckbox
-              v-model="useClustering"
-              switch
-              class="mt-3"
-            >
-              Enable Clustering
-            </BFormCheckbox>
+            <!-- Sidebar -->
+            <BCol cols="12" md="2" lg="2" class="mb-3 mb-md-0">
+              <BCard>
+                <BCardBody>
+                  <h5 class="mb-3">Filters</h5>
 
-          </BCardBody>
-        </BCard>
-      </BCol>
+                  <!-- Date Range -->
+                  <div class="mb-3">
+                    <label class="form-label">Start Date</label>
+                    <BFormInput type="date" v-model="startDate" />
+                  </div>
 
-      <!-- Map Area -->
-      <BCol cols="12" md="10" lg="10">
-        <BCard>
-          <BCardBody>
-            <div ref="mapContainer" class="map-canvas"></div>
-          </BCardBody>
-        </BCard>
-      </BCol>
+                  <div class="mb-3">
+                    <label class="form-label">End Date</label>
+                    <BFormInput type="date" v-model="endDate" />
+                  </div>
 
-    </BRow>
-  </BContainer>
+                  <!-- Sport Toggles -->
+                  <div>
+                    <label class="form-label">Sports</label>
+                    <div class="d-flex flex-column gap-2">
+                      <BFormCheckbox v-for="sport in sports" :key="sport.id" v-model="selectedSports" :value="sport.id">
+                        {{ sport.name }}
+                      </BFormCheckbox>
+                    </div>
+                  </div>
+                  <BFormCheckbox v-model="useClustering" switch class="mt-3">
+                    Enable Clustering
+                  </BFormCheckbox>
+
+                </BCardBody>
+              </BCard>
+            </BCol>
+
+            <!-- Map Area -->
+            <BCol cols="12" md="8" lg="9" class="d-flex flex-column">
+              <BCardBody class="p-0 position-relative flex-fill d-flex flex-column">
+                <div ref="mapContainer" class="map-canvas"></div>
+              </BCardBody>
+            </BCol>
+
+          </BRow>
+        </BCardBody>
+      </BCard>
+    </BContainer>
+  </div>
 </template>
 
 <script setup>

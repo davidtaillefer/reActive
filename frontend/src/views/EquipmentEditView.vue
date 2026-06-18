@@ -74,6 +74,34 @@
 
         </BForm>
 
+        <div v-if="isEdit" class="mt-4">
+            <BCard id="add-maintenance" class="p-3">
+                <h5>Add Maintenance</h5>
+                <BForm @submit.prevent="addMaintenance">
+                    <BRow class="g-2 align-items-end">
+                        <BCol cols="12" md="2">
+                            <BFormInput v-model="newMaintenance.date" type="date" />
+                        </BCol>
+                        <BCol cols="12" md="2">
+                            <BFormInput v-model.number="newMaintenance.distance" type="number" placeholder="km" />
+                        </BCol>
+                        <BCol cols="12" md="2">
+                            <BFormSelect v-model="newMaintenance.type" :options="typeOptions" />
+                        </BCol>
+                        <BCol cols="12" md="3">
+                            <BFormInput v-model="newMaintenance.shop" placeholder="Shop" />
+                        </BCol>
+                        <BCol cols="12" md="2">
+                            <BFormInput v-model="newMaintenance.notes" placeholder="Notes" />
+                        </BCol>
+                        <BCol cols="12" md="1">
+                            <BButton type="submit" size="sm" variant="primary" class="w-100">+</BButton>
+                        </BCol>
+                    </BRow>
+                </BForm>
+            </BCard>
+        </div>
+
     </BCard>
 </template>
 
@@ -84,7 +112,8 @@ import {
     getEquipmentById,
     createEquipment,
     updateEquipment,
-    getSports
+    getSports,
+    createMaintenance
 } from '@/api/equipment';
 
 const route = useRoute();
@@ -245,6 +274,38 @@ const onDrop = (e) => {
 const onFileSelect = (e) => {
     const file = e.target.files[0];
     handleFile(file);
+};
+
+// --- Maintenance addition (available when editing) ---
+const typeOptions = [
+    { value: null, text: 'Type' },
+    { value: 'chain', text: 'Chain' },
+    { value: 'tire', text: 'Tire' },
+    { value: 'bar tape', text: 'Bar Tape' },
+    { value: 'tune up', text: 'Tune Up' }
+];
+
+const newMaintenance = ref({
+    date: '',
+    distance: null,
+    type: null,
+    shop: '',
+    notes: ''
+});
+
+const addMaintenance = async () => {
+    if (!isEdit.value) return;
+
+    try {
+        const res = await createMaintenance(route.params.id, newMaintenance.value);
+        if (res && !res.ok) throw new Error('Failed to add');
+        // Clear form and notify user
+        newMaintenance.value = { date: '', distance: null, type: null, shop: '', notes: '' };
+        alert('Maintenance record added.');
+    } catch (err) {
+        console.error(err);
+        alert('Failed to add maintenance record.');
+    }
 };
 </script>
 

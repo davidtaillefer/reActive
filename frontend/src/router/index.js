@@ -10,7 +10,7 @@ import UploadView from '../views/UploadView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import PerformanceView from '../views/PerformanceView.vue' 
 import EquipmentListView from '../views/EquipmentListView.vue'
-import EquipmentDetailView from '../views/EquipmentDetailView.vue'
+import EquipmentDetailCard from '@/components/ui/EquipmentDetailCard.vue'
 import EquipmentEditView from '../views/EquipmentEditView.vue'
 
 const routes = [
@@ -30,7 +30,7 @@ const routes = [
       { path: '/performance', name: 'Condition', component: PerformanceView},
       { path: '/equipment', name: 'Equipment', component: EquipmentListView},
       { path: '/equipment/new', name: 'EquipmentCreate', component: EquipmentEditView},
-      { path: '/equipment/:id', name: 'EquipmentDetail', component: EquipmentDetailView},
+      { path: '/equipment/:id', name: 'EquipmentDetail', component: EquipmentDetailCard},
       { path: '/equipment/:id/edit', name: 'EquipmentEdit', component: EquipmentEditView}
     ]
   }

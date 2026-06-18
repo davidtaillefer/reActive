@@ -6,7 +6,7 @@
             <BCol cols="12" lg="8" class="d-flex flex-column">
                 <BCard class="shadow-sm flex-grow-1">
                     <BCardBody class="d-flex flex-column">
-                        <h5 class="mb-3">Muscle Fatigue</h5>
+                        <h3 class="mb-3">Muscle Fatigue</h3>
 
                         <MuscleMap v-if="hasFatigue"
                             :muscleData="{ load: (performance.ratios && Object.keys(performance.ratios).length) ? performance.ratios : performance.fatigue }"

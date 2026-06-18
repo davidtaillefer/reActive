@@ -9,6 +9,10 @@
                     Edit
                 </BButton>
 
+                <BButton size="sm" variant="secondary" class="me-2" @click="goToAddMaintenance">
+                    Add Maintenance
+                </BButton>
+
                 <BButton size="sm" variant="danger" @click="confirmDelete">
                     Delete
                 </BButton>
@@ -125,45 +129,7 @@
             </template>
 
         </BTable>
-        <BForm @submit.prevent="addMaintenance" class="mt-3">
-
-            <BRow class="g-2 align-items-end">
-
-                <!-- Date -->
-                <BCol cols="12" md="2">
-                    <BFormInput v-model="newMaintenance.date" type="date" />
-                </BCol>
-
-                <!-- Distance -->
-                <BCol cols="12" md="2">
-                    <BFormInput v-model.number="newMaintenance.distance" type="number" placeholder="km" />
-                </BCol>
-
-                <!-- Type (dropdown) -->
-                <BCol cols="12" md="2">
-                    <BFormSelect v-model="newMaintenance.type" :options="typeOptions" />
-                </BCol>
-
-                <!-- Shop -->
-                <BCol cols="12" md="3">
-                    <BFormInput v-model="newMaintenance.shop" placeholder="Shop" />
-                </BCol>
-
-                <!-- Notes -->
-                <BCol cols="12" md="2">
-                    <BFormInput v-model="newMaintenance.notes" placeholder="Notes" />
-                </BCol>
-
-                <!-- Submit -->
-                <BCol cols="12" md="1">
-                    <BButton type="submit" size="sm" variant="primary" class="w-100">
-                        +
-                    </BButton>
-                </BCol>
-
-            </BRow>
-
-        </BForm>
+        <!-- Maintenance addition moved to EquipmentEditView -->
         <BModal v-model="showDeleteModal" title="Confirm Delete">
             <p>
                 Delete <strong>{{ equipment.name }}</strong>?<br />
@@ -183,18 +149,22 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { getEquipmentById, deleteEquipment, getTotalDistance, getMaintenance, createMaintenance, updateMaintenance, deleteMaintenance } from '@/api/equipment';
+import { getEquipmentById, deleteEquipment, getTotalDistance, getMaintenance, updateMaintenance, deleteMaintenance } from '@/api/equipment';
+
+const props = defineProps({ equipmentId: { type: [String, Number], default: null } });
 
 const route = useRoute();
 const router = useRouter();
 
 const equipment = ref(null);
-const currentUsage = ref();
+const currentUsage = ref(0);
 const maintenanceHistory = ref([]);
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
+
+const currentId = computed(() => props.equipmentId ?? route.params.id);
 
 const fields = [
     { key: 'date', label: 'Date' },
@@ -221,15 +191,35 @@ const progressPercent = computed(() => {
     );
 });
 
+const loadDetails = async (id) => {
+    if (!id) return;
+    equipment.value = await getEquipmentById(id);
+    currentUsage.value = await getTotalDistance(id) || 0;
+    maintenanceHistory.value = await getMaintenance(id) || [];
+};
+
 onMounted(async () => {
-    equipment.value = await getEquipmentById(route.params.id);
-    currentUsage.value = await getTotalDistance(route.params.id) || 0;
-    maintenanceHistory.value = await getMaintenance(route.params.id);
-    console.log("Equipment Record Returned: ", equipment.value)
+    if (currentId.value) await loadDetails(currentId.value);
+    console.log('Equipment Record Returned: ', equipment.value)
+});
+
+watch(() => props.equipmentId, async (val) => {
+    if (val) await loadDetails(val);
+}, { immediate: true });
+
+watch(() => route.params.id, async (val) => {
+    if (!props.equipmentId && val) await loadDetails(val);
 });
 
 const goToEdit = () => {
-    router.push(`/equipment/${route.params.id}/edit`);
+    if (!currentId.value) return;
+    router.push(`/equipment/${currentId.value}/edit`);
+};
+
+const goToAddMaintenance = () => {
+    if (!currentId.value) return;
+    // navigate to edit view and scroll to maintenance section
+    router.push({ path: `/equipment/${currentId.value}/edit`, hash: '#add-maintenance' });
 };
 
 const progressVariant = computed(() => {
@@ -255,27 +245,7 @@ const typeOptions = [
     { value: 'tune up', text: 'Tune Up' }
 ];
 
-const newMaintenance = ref({
-    date: '',
-    distance: null,
-    type: null,
-    shop: '',
-    notes: ''
-});
-
-const addMaintenance = async () => {
-    await createMaintenance(route.params.id, newMaintenance.value);
-
-    maintenanceHistory.value = await getMaintenance(route.params.id);
-
-    newMaintenance.value = {
-        date: '',
-        distance: null,
-        type: null,
-        shop: '',
-        notes: ''
-    };
-};
+// Maintenance creation has been moved to the equipment edit view.
 
 const editingId = ref(null);
 
@@ -308,7 +278,7 @@ const saveEdit = async (id) => {
 
     await updateMaintenance(id, editRow.value);
 
-    maintenanceHistory.value = await getMaintenance(route.params.id);
+    if (currentId.value) maintenanceHistory.value = await getMaintenance(currentId.value);
 
     editingId.value = null;
     editErrors.value = {};
@@ -325,7 +295,7 @@ const deleteMaintenanceRecord = async (id) => {
 
     await deleteMaintenance(id);
 
-    maintenanceHistory.value = await getMaintenance(route.params.id);
+    if (currentId.value) maintenanceHistory.value = await getMaintenance(currentId.value);
 };
 
 const validateEdit = () => {
@@ -360,7 +330,8 @@ const confirmDelete = () => {
 
 const doDelete = async () => {
     try {
-        const res = await deleteEquipment(route.params.id);
+        if (!currentId.value) return;
+        const res = await deleteEquipment(currentId.value);
 
         if (!res.ok) throw new Error();
 

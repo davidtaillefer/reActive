@@ -6,8 +6,7 @@
           <!-- Header -->
           <div class="d-flex align-items-center justify-content-between mb-4">
             <div class="d-flex align-items-center gap-3">
-              <IBiTree />
-              <h2 class="mb-0">Seasonal Activity</h2>
+              <h3 class="mb-0">Seasonal Activity</h3>
             </div>
             <div class="small text-muted">
               <BFormSelect v-model="selectedYear" :options="yearOptions" size="sm" class="bg-white"></BFormSelect>

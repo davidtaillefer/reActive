@@ -47,6 +47,7 @@ declare module 'vue' {
     CadenceCard: typeof import('./src/components/ui/CadenceCard.vue')['default']
     CalendarWrapper: typeof import('./src/components/ui/CalendarWrapper.vue')['default']
     ElevationCard: typeof import('./src/components/ui/ElevationCard.vue')['default']
+    EquipmentDetailCard: typeof import('./src/components/ui/EquipmentDetailCard.vue')['default']
     Field: typeof import('./src/components/ui/Field.vue')['default']
     FormatCard: typeof import('./src/components/ui/FormatCard.vue')['default']
     HeartRateCard: typeof import('./src/components/ui/HeartRateCard.vue')['default']

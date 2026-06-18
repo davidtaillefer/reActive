@@ -49,12 +49,12 @@ const { stats, loading, error, fetchStats, getTodayStats } = useStats()
 
 // Small status mapping for label & colours (matches TrainingStatusCard)
 const statusMap = {
-    0: { label: 'Detraining', color: 'secondary', description: 'Your fitness is declining. Consider increasing activity.' },
+    1: { label: 'Detraining', color: 'secondary', description: 'Your fitness is declining. Consider increasing activity.' },
     5: { label: 'Recovery', color: 'info', description: 'Your body is recovering—this is a good time to rest.' },
     4: { label: 'Maintaining', color: 'primary', description: 'You are maintaining your current fitness level.' },
     7: { label: 'Productive', color: 'success', description: 'Your fitness is improving—keep it up!' },
     2: { label: 'Overreaching', color: 'warning', description: 'You may be pushing too hard—consider recovery.' },
-    1: { label: 'Unproductive', color: 'danger', description: 'Your training is not producing expected gains.' },
+    0: { label: 'Unproductive', color: 'danger', description: 'Your training is not producing expected gains.' },
     8: { label: 'Strained', color: 'strained', description: 'Your body is under excessive stress—immediate recovery needed.' }
 }
 

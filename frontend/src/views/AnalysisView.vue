@@ -1,90 +1,90 @@
 <template>
-  <BContainer fluid class="h-100 p-0 overflow-hidden">
-    <div class="d-flex h-100">
-      
-      <!-- Left Sidebar: Report Types -->
-  <div class="bg-dark text-white p-3" style="width: 240px; flex-shrink: 0;">
-    <h5 class="mb-4 text-purple fw-bold">Analysis</h5>
-    <BNav vertical pills>
-      <BNavItem 
-        v-for="report in reports" 
-        :key="report.id"
-        :active="activeReport === report.id"
-        @click="activeReport = report.id"
-        class="mb-2"
-      >
-        <i :class="`bi bi-${report.icon} me-2`"></i>{{ report.label }}
-      </BNavItem>
-    </BNav>
-  </div>
+  <div class="h-100 bg-light overflow-auto">
+    <BContainer fluid class="py-4 px-4 h-100">
+      <BCard class="shadow-sm h-100 d-flex flex-column">
+        <BCardBody class="d-flex flex-column overflow-hidden">
+          <!-- Header -->
+          <div class="d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-3">
+              <h3 class="mb-0">Analysis</h3>
+            </div>
+            <div class="small text-muted flex-grow-1 d-flex flex-column bg-light overflow-auto">
+              <header class="bg-white p-3 shadow-sm">
 
-      <!-- Main Content Area -->
-      <div class="flex-grow-1 d-flex flex-column bg-light overflow-auto">
-        
-        <!-- Top Filter Bar -->
-        <header class="bg-white border-bottom p-3 shadow-sm">
-          <BRow class="align-items-center g-3">
-            <BCol cols="auto">
-              <label class="small fw-bold text-muted d-block">Time Range</label>
-              <BFormSelect v-model="filters.range" :options="rangeOptions" size="sm" style="width: 150px" />
+                <BRow class="align-items-center g-3">
+
+                  <BCol cols="auto">
+                    <label class="small fw-bold text-muted d-block">Time Range</label>
+                    <BFormSelect v-model="filters.range" :options="rangeOptions" size="sm" style="width: 150px" />
+                  </BCol>
+                  <BCol cols="auto">
+                    <label class="small fw-bold text-muted d-block">Sport</label>
+                    <BFormSelect v-model="filters.sport" :options="sportOptions" size="sm" style="width: 150px" />
+                  </BCol>
+                  <BCol v-if="filters.range !== 'all'" cols="auto">
+                    <label class="small fw-bold text-muted d-block">Specific Date</label>
+                    <BFormInput v-model="filters.date" type="date" size="sm" />
+                  </BCol>
+                </BRow>
+              </header>
+            </div>
+          </div>
+
+          <BRow class="g-3 flex-fill overflow-hidden">
+            <!-- Left Sidebar - Report Types -->
+            <BCol cols="12" md="4" lg="3">
+              <div class="d-flex flex-column gap-3 h-100 overflow-auto">
+                <BCard>
+                  <BCardBody>
+                    <h5 class="mb-3 fw-bold">Reports</h5>
+                    <div class=" text-white p-3" style="width: 240px;">
+                      <BNav vertical pills>
+                        <BNavItem v-for="report in reports" :key="report.id" :active="activeReport === report.id"
+                          @click="activeReport = report.id" class="mb-2">
+                          <i :class="`bi bi-${report.icon} me-2`"></i>{{ report.label }}
+                        </BNavItem>
+                      </BNav>
+                    </div>
+                  </BCardBody>
+                </BCard>
+              </div>
             </BCol>
-            <BCol cols="auto">
-              <label class="small fw-bold text-muted d-block">Sport</label>
-              <BFormSelect v-model="filters.sport" :options="sportOptions" size="sm" style="width: 150px" />
-            </BCol>
-            <BCol v-if="filters.range !== 'all'" cols="auto">
-              <label class="small fw-bold text-muted d-block">Specific Date</label>
-              <BFormInput v-model="filters.date" type="date" size="sm" />
+            <!-- Chart Window -->
+            <BCol cols="12" md="8" lg="9" class="d-flex flex-column">
+              <BCard>
+              <BCardBody class="p-0 position-relative flex-fill d-flex flex-column">
+                <template #header>
+                  <div class="fw-bold">
+                    {{ activeReport === 'atl' ? 'Acute Training Load' :
+                      activeReport === 'intensity' ? 'Intensity Minutes' : 'Activity Volume' }}
+                  </div>
+                </template>
+
+                <div class="chart-container" style="height: 500px;">
+                  <!-- 1. Volume: Uses 'chartData' (Stacked by Sport) -->
+                  <Bar v-if="activeReport === 'volume'" :data="chartData" :options="chartOptions" />
+
+                  <!-- 2. ATL: Uses 'loadChartData' (Line Trend) -->
+                  <Line v-else-if="activeReport === 'atl'" :data="loadChartData" :options="lineOptions" />
+
+                  <!-- 3. Intensity: Uses 'intensityChartData' (Stacked by Level) -->
+                  <Bar v-else-if="activeReport === 'intensity'" :data="intensityChartData" :options="chartOptions" />
+                </div>
+              </BCardBody>
+              </BCard>
             </BCol>
           </BRow>
-        </header>
-
-        <!-- Chart Window -->
-<main class="flex-grow-1 p-4">
-  <BCard class="h-100 shadow-sm border-0">
-    <template #header>
-      <div class="fw-bold">
-        {{ activeReport === 'atl' ? 'Acute Training Load' : 
-           activeReport === 'intensity' ? 'Intensity Minutes' : 'Activity Volume' }}
-      </div>
-    </template>
-
-    <div class="chart-container" style="height: 500px;">
-      <!-- 1. Volume: Uses 'chartData' (Stacked by Sport) -->
-      <Bar 
-        v-if="activeReport === 'volume'" 
-        :data="chartData" 
-        :options="chartOptions" 
-      />
-      
-      <!-- 2. ATL: Uses 'loadChartData' (Line Trend) -->
-      <Line 
-        v-else-if="activeReport === 'atl'" 
-        :data="loadChartData" 
-        :options="lineOptions" 
-      />
-      
-      <!-- 3. Intensity: Uses 'intensityChartData' (Stacked by Level) -->
-      <Bar 
-        v-else-if="activeReport === 'intensity'" 
-        :data="intensityChartData" 
-        :options="chartOptions" 
-      />
-    </div>
-  </BCard>
-</main>
-
-
-      </div>
-    </div>
-  </BContainer>
+        </BCardBody>
+      </BCard>
+    </BContainer>
+  </div>
 </template>
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { Bar, Line } from 'vue-chartjs'
 import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, PointElement, LineElement, Filler } from 'chart.js'
 
-ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, PointElement ,LineElement, Filler  )
+ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale, PointElement, LineElement, Filler)
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
 const activities = ref([])
@@ -114,7 +114,7 @@ const loadSportsMeta = async () => {
     // Populate the dropdown options
     const options = sports.map((s: any) => ({ value: s.id.toString(), text: s.name }))
     sportOptions.value = [{ value: 'all', text: 'All Sports' }, ...options]
-    
+
   } catch (err) {
     console.error('Failed to load sports metadata:', err)
   }
@@ -145,7 +145,7 @@ const getRangeLabel = (dateVal: string | Date) => {
   const d = new Date(dateVal);
   if (filters.value.range === 'all') return d.getFullYear().toString();
   if (filters.value.range === 'year') return d.toLocaleString('en-CA', { month: 'short' });
-  if (filters.value.range === 'year_week') {return `W${getWeekNumber(d)}`;}
+  if (filters.value.range === 'year_week') { return `W${getWeekNumber(d)}`; }
   if (filters.value.range === 'month') return `Week ${getWeekNumber(d)}`;
   return d.toLocaleString('en-CA', { weekday: 'short' });
 };
@@ -153,7 +153,7 @@ const getRangeLabel = (dateVal: string | Date) => {
 
 // Grouping Logic
 const chartData = computed(() => {
-  const filtered = activities.value.filter(a => 
+  const filtered = activities.value.filter(a =>
     filters.value.sport === 'all' || a.sport === Number(filters.value.sport)
   )
 
@@ -191,10 +191,14 @@ const chartData = computed(() => {
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
-  scales: { x: { stacked: true, ticks: {
+  scales: {
+    x: {
+      stacked: true, ticks: {
         autoSkip: true,
         maxTicksLimit: 13 // Shows about one label per month
-      } }, y: { stacked: true, title: { display: true, text: 'Hours' } } }
+      }
+    }, y: { stacked: true, title: { display: true, text: 'Hours' } }
+  }
 }
 
 const getWeekNumber = (d: Date) => {
@@ -208,7 +212,7 @@ const getWeekNumber = (d: Date) => {
 
 const loadChartData = computed(() => {
   const dailyData: Record<string, number> = {}
-  
+
   activities.value.forEach(act => {
     const d = new Date(act.date).toISOString().split('T')[0]
     // Sum training load if multiple activities happen on one day
@@ -236,7 +240,7 @@ const loadChartData = computed(() => {
 // 1. Function to fetch data based on CURRENT filter state
 const loadFilteredData = async () => {
   const { start, end } = getDateRange();
-  
+
   if (!start || !end) return;
 
   try {
@@ -256,12 +260,12 @@ const loadFilteredData = async () => {
 // Intensity Minutes Chart Data
 const intensityChartData = computed(() => {
   const buckets: Record<string, { moderate: number; vigorous: number }> = {};
-  
+
   // 1. Process data into buckets
   statsData.value.forEach(stat => {
     const label = getRangeLabel(stat.date);
     if (!buckets[label]) buckets[label] = { moderate: 0, vigorous: 0 };
-    
+
     buckets[label].moderate += (Number(stat.moderate_intensity) || 0);
     buckets[label].vigorous += (Number(stat.vigorous_intensity) || 0);
   });
@@ -303,12 +307,12 @@ watch(filters, () => {
 
 onMounted(async () => {
   // First, get the sports metadata (names/colours)
-  await loadSportsMeta() 
-  
+  await loadSportsMeta()
+
   // Second, get the global bounds to know the "All Time" range
   const boundsRes = await fetch(`${apiBaseUrl}activities/bounds`)
   globalBounds.value = await boundsRes.json()
-  
+
   // Finally, trigger the first data load
   await loadFilteredData()
 })
@@ -322,11 +326,11 @@ const getDateRange = () => {
     // Uses the global bounds we fetched on mount
     start = toSimpleDate(globalBounds.value.start);
     end = toSimpleDate(globalBounds.value.end);
-  } 
+  }
   else if (filters.value.range === 'year' || filters.value.range === 'year_week') {
     start = `${d.getFullYear()}-01-01`;
     end = `${d.getFullYear()}-12-31`;
-  }  
+  }
   else if (filters.value.range === 'month') {
     // First day of selected month
     const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -334,16 +338,16 @@ const getDateRange = () => {
     const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
     start = toSimpleDate(firstDay);
     end = toSimpleDate(lastDay);
-  } 
+  }
   else if (filters.value.range === 'week') {
     // Calculate Sunday (0) as the start of the week
     const day = d.getDay();
     const sunday = new Date(d);
     sunday.setDate(d.getDate() - day);
-    
+
     const saturday = new Date(sunday);
     saturday.setDate(sunday.getDate() + 6);
-    
+
     start = toSimpleDate(sunday);
     end = toSimpleDate(saturday);
   }
@@ -363,4 +367,3 @@ const toSimpleDate = (dateVal) => {
 
 
 </script>
-

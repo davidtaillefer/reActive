@@ -347,3 +347,60 @@ MIT License
 This project is built around the idea that **data consistency beats format-specific complexity**.
 
 ---
+
+## 🐳 Deployment (Docker)
+
+This repository supports two deployment models:
+
+- Use an external MariaDB server (e.g. your own managed DB) and run the services with `docker-compose`.
+- Run a MariaDB container locally (optional) and let compose initialize the database using an SQL script.
+
+Files of interest:
+
+- `docker-compose.yml` — primary compose file for backend + frontend (reads variables from `.env`).
+- `docker-compose.db.yml` — optional compose file that adds a MariaDB service and named volume.
+- `backend/scripts/init_db.sql` — initialization SQL executed when MariaDB container initializes.
+- `.env.example` — example environment variables. Copy to `.env` and customize (do NOT commit secrets).
+
+Quick start (external DB)
+
+1. Create a `.env` at the repo root from `.env.example` and fill values. Set `DB_HOST` to your DB server hostname.
+2. Build and start the services:
+
+```bash
+cp .env.example .env
+# edit .env and set DB_* and VITE_API_BASE_URL appropriately
+docker-compose up --build -d
+```
+
+Notes:
+- The backend reads DB connection info from environment variables (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`).
+- The frontend's `VITE_API_BASE_URL` must be set at build time; `docker-compose` passes it as a build arg so the produced static site points to your backend.
+
+Quick start (include MariaDB in compose)
+
+If you want the repo to create and run a MariaDB service for you, use the extra compose file:
+
+```bash
+cp .env.example .env
+# set DB_USER/DB_PASSWORD/MYSQL_ROOT_PASSWORD in .env
+docker-compose -f docker-compose.yml -f docker-compose.db.yml up --build -d
+```
+
+The MariaDB image will execute `backend/scripts/init_db.sql` on first initialization to create the database/schema. Adjust that SQL file as needed to match your production schema.
+
+How this supports both cases
+
+- `docker-compose.yml` is written to read DB host/credentials from `.env`. For an external DB, set `DB_HOST` to that host.
+- For a local DB, start the additional compose file; set `DB_HOST` to `db` (the service hostname) in `.env` or rely on the `MYSQL_DATABASE` and `MYSQL_USER` environment variables provided by the `db` service.
+
+Security & production notes
+
+- Do not commit `.env` with real credentials.
+- For production, prefer Docker secrets (Swarm) or your orchestrator's secret store.
+- Use a reverse proxy with TLS (nginx/Traefik) in front of the services for HTTPS.
+- Use named volumes for persistent storage and backups for DB and uploads.
+
+If you want, I can make a small GitHub Actions workflow to build and push images to a registry and a sample deployment script to pull and restart on your server.
+
+---
