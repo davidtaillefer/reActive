@@ -31,6 +31,19 @@ from PIL import Image
 main_bp = Blueprint("main", __name__)
 
 
+def safe_close(cursor=None, conn=None):
+    try:
+        if cursor:
+            cursor.close()
+    except Exception:
+        pass
+    try:
+        if conn:
+            conn.close()
+    except Exception:
+        pass
+
+
 def get_equipment_upload_folder():
     return current_app.config["EQUIPMENT_UPLOAD_FOLDER"]
 
@@ -173,8 +186,16 @@ def sports():
     except Exception as e:
         print("Error fetching sports: ", e)
     finally:
-        cursor.close()
-        conn.close()
+        try:
+            if 'cursor' in locals() and cursor:
+                cursor.close()
+        except Exception:
+            pass
+        try:
+            if 'conn' in locals() and conn:
+                conn.close()
+        except Exception:
+            pass
 
 
 # GET a subsport based on passed sport
@@ -197,8 +218,7 @@ def subsports(sportid):
     except Exception as e:
         print(e)
     finally:
-        cursor.close()
-        conn.close()
+        safe_close(cursor if 'cursor' in locals() else None, conn if 'conn' in locals() else None)
 
 
 # validation.py
