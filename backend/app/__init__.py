@@ -6,6 +6,7 @@ from .routes import main_bp, activities_bp, hrm_bp, sync_bp
 from .hrmbak import hrm_bpbak
 from .routes.preferences import preferences_bp
 from .routes.performance import performance_bp
+from .routes.health import health_records_bp
 
 
 
@@ -23,4 +24,5 @@ def create_app():
     app.register_blueprint(sync_bp)
     app.register_blueprint(preferences_bp)
     app.register_blueprint(performance_bp)
+    app.register_blueprint(health_records_bp)
     return app

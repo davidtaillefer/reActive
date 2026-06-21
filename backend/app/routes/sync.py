@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any
 from ..db import exdb
 import config as app_config
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
+import uuid
 from pymysql import Error
 from datetime import timedelta, date
 
@@ -106,6 +107,121 @@ def sync_days(days):
 logging.getLogger("garminconnect").setLevel(logging.CRITICAL)
 
 api: Garmin | None = None
+
+# In-memory store for active MFA login sessions.
+# Keyed by resume_id (uuid4 string) => {"garmin": Garmin instance, "resume_data": obj}
+mfa_sessions: dict[str, dict] = {}
+
+
+@sync_bp.route('/sync/credentials/status', methods=['GET'])
+def credentials_status():
+    """Return whether stored tokens or env credentials are available."""
+    status = {
+        "has_tokens": False,
+        "has_env_credentials": False,
+    }
+
+    # Check for token file validity
+    try:
+        garmin = Garmin()
+        garmin.login(config.tokenstore)
+        status["has_tokens"] = True
+    except Exception:
+        status["has_tokens"] = False
+
+    # Check for environment-provided credentials
+    if config.email and config.password:
+        status["has_env_credentials"] = True
+
+    return jsonify(status)
+
+
+@sync_bp.route('/sync/credentials', methods=['POST'])
+def credentials_login():
+    """Accept email/password JSON and attempt a non-interactive login.
+
+    If MFA is required, returns 202 with a `resume_id` to be used with
+    `/sync/credentials/mfa`.
+    """
+    payload = request.get_json(force=True)
+    email = payload.get("email")
+    password = payload.get("password")
+
+    if not email or not password:
+        return jsonify({"error": "email and password required"}), 400
+
+    try:
+        garmin = Garmin(email=email, password=password, is_cn=False, return_on_mfa=True)
+        result1, result2 = garmin.login()
+
+        if result1 == "needs_mfa":
+            resume_id = str(uuid.uuid4())
+            mfa_sessions[resume_id] = {"garmin": garmin, "resume_data": result2}
+            return jsonify({"mfa_required": True, "resume_id": resume_id}), 202
+
+        # Successful login
+        garmin.garth.dump(config.tokenstore)
+        return jsonify({"mfa_required": False, "message": "Login successful"}), 200
+
+    except GarminConnectAuthenticationError as e:
+        return jsonify({"error": "Authentication failed", "detail": str(e)}), 401
+    except Exception as e:
+        return jsonify({"error": "Login error", "detail": str(e)}), 500
+
+
+@sync_bp.route('/sync/credentials/mfa', methods=['POST'])
+def credentials_mfa():
+    """Submit MFA code for an in-progress login identified by `resume_id`."""
+    payload = request.get_json(force=True)
+    resume_id = payload.get("resume_id")
+    code = payload.get("code")
+
+    if not resume_id or not code:
+        return jsonify({"error": "resume_id and code required"}), 400
+
+    session = mfa_sessions.get(resume_id)
+    if not session:
+        return jsonify({"error": "Invalid resume_id"}), 404
+
+    garmin = session.get("garmin")
+    resume_data = session.get("resume_data")
+
+    try:
+        garmin.resume_login(resume_data, code)
+        # Save tokens
+        garmin.garth.dump(config.tokenstore)
+        # Clean up session
+        del mfa_sessions[resume_id]
+        return jsonify({"message": "MFA succeeded, tokens saved"}), 200
+
+    except GarthHTTPError as garth_error:
+        return jsonify({"error": "MFA failed", "detail": str(garth_error)}), 400
+    except Exception as e:
+        return jsonify({"error": "MFA error", "detail": str(e)}), 500
+
+
+@sync_bp.route('/sync/credentials/logout', methods=['POST'])
+def credentials_logout():
+    """Remove stored Garmin token files from disk."""
+    removed = []
+    errors = []
+    paths = [getattr(config, 'tokenstore', None), getattr(config, 'tokenstore_base64', None)]
+
+    for p in paths:
+        if not p:
+            continue
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+                removed.append(p)
+        except Exception as e:
+            errors.append({"path": p, "error": str(e)})
+
+    # clear in-memory MFA sessions too
+    mfa_sessions.clear()
+
+    return jsonify({"removed": removed, "errors": errors}), 200
+
 
 
 # Initialize configuration using the shared app config module
@@ -603,8 +719,14 @@ def disconnect_api(api: Garmin):
 
 
 def init_api(email: str | None = None, password: str | None = None) -> Garmin | None:
-    """Initialize Garmin API with smart error handling and recovery."""
-    # First try to login with stored tokens
+    """Initialize Garmin API non-interactively.
+
+    This function will first try stored tokens. If no valid tokens are present
+    it will return None unless `email` and `password` are provided, in which
+    case it will attempt to log in and may return a Garmin instance or None on
+    failure.
+    """
+    # Try to login with stored tokens first
     try:
         print(f"Attempting to login using stored tokens from: {config.tokenstore}")
 
@@ -619,82 +741,44 @@ def init_api(email: str | None = None, password: str | None = None) -> Garmin | 
         GarminConnectAuthenticationError,
         GarminConnectConnectionError,
     ):
-        print("No valid tokens found. Requesting fresh login credentials.")
+        print("No valid tokens found.")
 
-    # Loop for credential entry with retry on auth failure
-    while True:
-        try:
-            # Get credentials if not provided
-            if not email or not password:
-                email = input("Email address: ").strip()
-                password = getpass("Password: ")
+    # If no credentials were provided, do not prompt interactively in containerized
+    # environments — return None and let the HTTP endpoints drive the login flow.
+    if not email or not password:
+        print("No credentials provided; returning None (credentials required)")
+        return None
 
-            print("Logging in with credentials...")
-            garmin = Garmin(
-                email=email, password=password, is_cn=False, return_on_mfa=True
-            )
-            result1, result2 = garmin.login()
+    # If credentials are provided, attempt non-interactive login and signal MFA
+    try:
+        print("Logging in with provided credentials...")
+        garmin = Garmin(email=email, password=password, is_cn=False, return_on_mfa=True)
+        result1, result2 = garmin.login()
 
-            if result1 == "needs_mfa":
-                print("Multi-factor authentication required")
-
-                mfa_code = get_mfa()
-                print("🔄 Submitting MFA code...")
-
-                try:
-                    garmin.resume_login(result2, mfa_code)
-                    print("✅ MFA authentication successful!")
-
-                except GarthHTTPError as garth_error:
-                    # Handle specific HTTP errors from MFA
-                    error_str = str(garth_error)
-                    print(f"🔍 Debug: MFA error details: {error_str}")
-
-                    if "429" in error_str and "Too Many Requests" in error_str:
-                        print("❌ Too many MFA attempts")
-                        print("💡 Please wait 30 minutes before trying again")
-                        sys.exit(1)
-                    elif "401" in error_str or "403" in error_str:
-                        print("❌ Invalid MFA code")
-                        print("💡 Please verify your MFA code and try again")
-                        continue
-                    else:
-                        # Other HTTP errors - don't retry
-                        print(f"❌ MFA authentication failed: {garth_error}")
-                        sys.exit(1)
-
-                except GarthException as garth_error:
-                    print(f"❌ MFA authentication failed: {garth_error}")
-                    print("💡 Please verify your MFA code and try again")
-                    continue
-
-            # Save tokens for future use
-            garmin.garth.dump(config.tokenstore)
-            print(f"Login successful! Tokens saved to: {config.tokenstore}")
-
-            return garmin
-
-        except GarminConnectAuthenticationError:
-            print("❌ Authentication failed:")
-            print("💡 Please check your username and password and try again")
-            # Clear the provided credentials to force re-entry
-            email = None
-            password = None
-            continue
-
-        except (
-            FileNotFoundError,
-            GarthHTTPError,
-            GarthException,
-            GarminConnectConnectionError,
-            requests.exceptions.HTTPError,
-        ) as err:
-            print(f"❌ Connection error: {err}")
-            print("💡 Please check your internet connection and try again")
+        if result1 == "needs_mfa":
+            # Caller should handle MFA via the /sync/credentials and
+            # /sync/credentials/mfa HTTP endpoints. Return None here so
+            # calling code knows no active API instance is available.
+            print("MFA required for provided credentials")
             return None
 
-        except KeyboardInterrupt:
-            print("\nLogin cancelled by user")
-            return None
+        # Save tokens and return the instance
+        garmin.garth.dump(config.tokenstore)
+        print(f"Login successful! Tokens saved to: {config.tokenstore}")
+        return garmin
+
+    except GarminConnectAuthenticationError:
+        print("Authentication failed for provided credentials")
+        return None
+
+    except (
+        FileNotFoundError,
+        GarthHTTPError,
+        GarthException,
+        GarminConnectConnectionError,
+        requests.exceptions.HTTPError,
+    ) as err:
+        print(f"Connection error: {err}")
+        return None
 
 

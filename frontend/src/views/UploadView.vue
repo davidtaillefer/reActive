@@ -15,15 +15,67 @@
           <!-- Formats -->
           <div class="row g-3 mt-3 mb-3">
             <div class="col-md-4">
-              <button type="button" class="card bg-light text-center w-100 p-0" @click="handleGarminSync"
+              <button type="button" class="card bg-light text-center w-100 p-0 position-relative" @click="handleGarminSync"
                 :disabled="isGarminSyncing" style="border: none;">
+                <!-- Token status badge (upper-right) -->
+                <div class="position-absolute top-0 end-0 p-2">
+                  <span v-if="tokenStatus.has_tokens" class="badge bg-success">Connected</span>
+                  <span v-else-if="tokenStatus.has_env_credentials" class="badge bg-warning text-dark">Env Creds</span>
+                  <span v-else class="badge bg-secondary">No Creds</span>
+                </div>
                 <div class="card-body">
                   <div v-if="isGarminSyncing" class="spinner-border spinner-border-sm mb-2" />
                   <img v-else :src="GarminLogo" width="96" height="96" class="mb-2" alt="Garmin logo" />
-                  <h6 class="mt-2 mb-1">Garmin Connect Sync</h6>
+                  <div class="d-flex align-items-center justify-content-center">
+                    <h6 class="mt-2 mb-1">Garmin Connect Sync</h6>
+                  </div>
+                  <div class="mt-2 text-center">
+                    <button class="btn btn-sm btn-outline-secondary" @click.stop.prevent="showLogoutConfirm = true">Logout / Clear Tokens</button>
+                  </div>
                 </div>
               </button>
             </div>
+
+            <!-- Credential / MFA Modals -->
+            <BModal v-model="showCredentialsModal" title="Garmin Connect Login">
+              <div class="mb-3">
+                <label class="form-label">Email</label>
+                <input v-model="credEmail" class="form-control" placeholder="you@example.com" />
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Password</label>
+                <input v-model="credPassword" type="password" class="form-control" />
+              </div>
+              <template #footer>
+                <BButton variant="secondary" @click="showCredentialsModal = false">Cancel</BButton>
+                <BButton variant="primary" @click="submitCredentials" :disabled="credSubmitting">
+                  <span v-if="credSubmitting" class="spinner-border spinner-border-sm"></span>
+                  <span v-else>Submit</span>
+                </BButton>
+              </template>
+            </BModal>
+
+            <BModal v-model="showMfaModal" title="Multi-Factor Authentication">
+              <div class="mb-3">
+                <label class="form-label">Enter code</label>
+                <input v-model="mfaCode" class="form-control" placeholder="123456" />
+              </div>
+              <template #footer>
+                <BButton variant="secondary" @click="showMfaModal = false">Cancel</BButton>
+                <BButton variant="primary" @click="submitMfa" :disabled="mfaSubmitting">
+                  <span v-if="mfaSubmitting" class="spinner-border spinner-border-sm"></span>
+                  <span v-else>Submit Code</span>
+                </BButton>
+              </template>
+            </BModal>
+
+            <BModal v-model="showLogoutConfirm" title="Confirm Logout">
+              <p>Clear stored Garmin tokens? This will require re-authentication to sync.</p>
+              <template #footer>
+                <BButton variant="secondary" @click="showLogoutConfirm = false">Cancel</BButton>
+                <BButton variant="danger" @click="() => { showLogoutConfirm = false; handleGarminLogout(); }">Clear Tokens</BButton>
+              </template>
+            </BModal>
           </div>
 
           <!-- Upload UI -->
@@ -401,12 +453,22 @@ const isSaving = ref(false);
 
 const isGarminSyncing = ref(false);
 
-const handleGarminSync = async () => {
+// Credential/MFA UI state
+const showCredentialsModal = ref(false);
+const showMfaModal = ref(false);
+const credEmail = ref('');
+const credPassword = ref('');
+const credSubmitting = ref(false);
+const mfaCode = ref('');
+const mfaSubmitting = ref(false);
+let mfaResumeId: string | null = null;
+const showLogoutConfirm = ref(false);
+const tokenStatus = ref({ has_tokens: false, has_env_credentials: false });
+
+const startGarminSync = async () => {
   isGarminSyncing.value = true;
   try {
-    const response = await fetch(`${apiBaseUrl}sync/days/7`, {
-      method: 'GET'
-    });
+    const response = await fetch(`${apiBaseUrl}sync/days/7`, { method: 'GET' });
 
     if (!response.ok) throw new Error('Sync failed');
 
@@ -435,6 +497,123 @@ const handleGarminSync = async () => {
     isGarminSyncing.value = false;
   }
 }
+
+const checkCredentialStatus = async () => {
+  try {
+    const res = await fetch(`${apiBaseUrl}sync/credentials/status`);
+    if (!res.ok) return { has_tokens: false, has_env_credentials: false };
+    return await res.json();
+  } catch (e) {
+    console.error('Credential status check failed', e);
+    return { has_tokens: false, has_env_credentials: false };
+  }
+}
+
+const refreshTokenStatus = async () => {
+  const status = await checkCredentialStatus();
+  tokenStatus.value = status;
+}
+
+const submitCredentials = async () => {
+  if (!credEmail.value || !credPassword.value) return;
+  credSubmitting.value = true;
+  try {
+    const res = await fetch(`${apiBaseUrl}sync/credentials`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: credEmail.value, password: credPassword.value })
+    });
+
+    if (res.status === 202) {
+      const data = await res.json();
+      mfaResumeId = data.resume_id;
+      showCredentialsModal.value = false;
+      showMfaModal.value = true;
+        await refreshTokenStatus();
+      return;
+    }
+
+    if (res.ok) {
+      showCredentialsModal.value = false;
+      // successful login, start sync
+      await refreshTokenStatus();
+      await startGarminSync();
+      return;
+    }
+
+    const err = await res.json();
+    alert('Login failed: ' + (err.detail || err.error || 'unknown'));
+  } catch (e) {
+    console.error('submitCredentials error', e);
+    alert('Login failed');
+  } finally {
+    credSubmitting.value = false;
+  }
+}
+
+const submitMfa = async () => {
+  if (!mfaResumeId || !mfaCode.value) return;
+  mfaSubmitting.value = true;
+  try {
+    const res = await fetch(`${apiBaseUrl}sync/credentials/mfa`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resume_id: mfaResumeId, code: mfaCode.value })
+    });
+
+    if (res.ok) {
+      showMfaModal.value = false;
+      mfaResumeId = null;
+      mfaCode.value = '';
+      // tokens saved, start sync
+      await refreshTokenStatus();
+      await startGarminSync();
+      return;
+    }
+
+    const err = await res.json();
+    alert('MFA failed: ' + (err.detail || err.error || 'unknown'));
+  } catch (e) {
+    console.error('submitMfa error', e);
+    alert('MFA submit failed');
+  } finally {
+    mfaSubmitting.value = false;
+  }
+}
+
+const handleGarminSync = async () => {
+  // Check if tokens or env credentials are present; if not prompt for credentials
+  const status = await checkCredentialStatus();
+  if (status.has_tokens || status.has_env_credentials) {
+    await startGarminSync();
+  } else {
+    credEmail.value = '';
+    credPassword.value = '';
+    showCredentialsModal.value = true;
+  }
+}
+
+const handleGarminLogout = async () => {
+  try {
+    const res = await fetch(`${apiBaseUrl}sync/credentials/logout`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert('Failed to clear tokens: ' + (err.detail || err.error || res.statusText));
+      return;
+    }
+    const data = await res.json();
+    alert('Cleared tokens: ' + (data.removed ? data.removed.join(', ') : 'none'));
+    await refreshTokenStatus();
+  } catch (e) {
+    console.error('handleGarminLogout error', e);
+    alert('Failed to clear tokens');
+  }
+}
+
+onMounted(async () => {
+  // existing onMounted earlier fetched sports; also refresh token status
+  await refreshTokenStatus();
+});
 
 const saveAllActivities = async () => {
   if (activities.value.length === 0) return;

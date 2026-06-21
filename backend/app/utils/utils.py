@@ -17,3 +17,14 @@ def safe_int(val):
     except:
         return None
     
+def safe_close(cursor=None, conn=None):
+    try:
+        if cursor:
+            cursor.close()
+    except Exception:
+        pass
+    try:
+        if conn:
+            conn.close()
+    except Exception:
+        pass

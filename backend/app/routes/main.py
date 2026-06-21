@@ -27,26 +27,13 @@ import numbers
 import time
 import pymysql
 from PIL import Image
+from ..utils import safe_close
+
 
 main_bp = Blueprint("main", __name__)
 
-
-def safe_close(cursor=None, conn=None):
-    try:
-        if cursor:
-            cursor.close()
-    except Exception:
-        pass
-    try:
-        if conn:
-            conn.close()
-    except Exception:
-        pass
-
-
 def get_equipment_upload_folder():
     return current_app.config["EQUIPMENT_UPLOAD_FOLDER"]
-
 
 def get_equipment_thumb_folder():
     return current_app.config["EQUIPMENT_THUMB_FOLDER"]

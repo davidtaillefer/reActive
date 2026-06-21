@@ -69,7 +69,6 @@ declare module 'vue' {
     IBiMoonStarsFill: typeof import('~icons/bi/moon-stars-fill')['default']
     IBiPinMapFill: typeof import('~icons/bi/pin-map-fill')['default']
     IBiSnow: typeof import('~icons/bi/snow')['default']
-    IBiSpeedometer2: typeof import('~icons/bi/speedometer2')['default']
     IBiTree: typeof import('~icons/bi/tree')['default']
     IBiupload: typeof import('~icons/bi/upload')['default']
     IBiWind: typeof import('~icons/bi/wind')['default']

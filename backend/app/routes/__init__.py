@@ -4,3 +4,4 @@ from .activities import activities_bp
 from .hrm import hrm_bp
 from .sync import sync_bp
 from .performance import performance_bp
+from .health import health_records_bp
