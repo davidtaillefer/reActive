@@ -15,6 +15,7 @@
             Calendar
           </BNavItem>
           <BNavItem to="/performance" tag="router-link">Condition</BNavItem>
+          <BNavItem to="/health" tag="router-link">Health</BNavItem>
           <BNavItem to="/map" tag="router-link">Map</BNavItem>
           <BNavItem to="/season" tag="router-link">Season</BNavItem>
           <BNavItem to="/analysis" tag="router-link">Analysis</BNavItem>

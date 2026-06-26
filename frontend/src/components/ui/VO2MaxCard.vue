@@ -101,7 +101,7 @@ const currentVo2 = computed(() => {
 // Fitness label - TODO read in from database table vased on user's age
 const fitnessLevel = computed(() => {
     const val = currentVo2.value
-    if (val >= 48.9) return 'Superior fitness'
+    if (val >= 45.8) return 'Superior fitness'
     if (val >= 43.4) return 'Excellent fitness'
     if (val >= 39.2) return 'Good fitness'
     if (val >= 35.6) return 'Fair fitness'
@@ -111,7 +111,7 @@ const fitnessLevel = computed(() => {
 const vo2Colour = computed(() => {
     const val = currentVo2.value
 
-    if (val >= 48.9) return '#800080' 
+    if (val >= 45.8) return '#800080' 
     if (val >= 43.4) return '#0d6efd'
     if (val >= 39.2) return '198754' 
     if (val >= 35.6) return '#ffc107' 

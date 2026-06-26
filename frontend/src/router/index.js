@@ -25,6 +25,8 @@ const routes = [
       { path: 'analysis', name: 'Analysis', component: () => import('../views/AnalysisView.vue') },
       { path: 'upload', name: 'Upload', component: () => import('../views/UploadView.vue') },
       { path: '/activity/:id', name: 'activity', component: () => import('../views/ActivityView.vue'), props: true,},
+      { path: '/health/:id', name: 'health', component: () => import('../views/HealthRecordView.vue'), props: true },
+      { path: 'health', name: 'Health', component: () => import('../views/HealthRecordView.vue') },
       { path: '/activity/:id/edit', name: 'activity-edit', component: () => import('@/views/ActivityEdit.vue'),},
       { path: 'settings', name: 'Settings', component: () => import('../views/SettingsView.vue') },
       { path: '/performance', name: 'Condition', component: PerformanceView},

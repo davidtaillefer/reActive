@@ -42,6 +42,7 @@ const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
 
 const activities2 = ref([])
 const calendarEvents = ref([]); // Create a separate ref for events
+const healthRecords = ref([])
 // Try to restore previously-selected calendar month from localStorage
 
 const getMonthFromRoute = () => {
@@ -106,7 +107,8 @@ const loadSports = async () => {
     if (pendingRange.value) {
       const { start, end } = pendingRange.value
       pendingRange.value = null
-      fetchActivities(start, end)
+      await fetchActivities(start, end)
+      await fetchHealthRecords(start, end)
     }
 
 
@@ -163,6 +165,27 @@ const fetchActivities = async (start, end) => {
   }
 }
 
+// --- Logic: Fetch Health Records for visible range ---
+const fetchHealthRecords = async (start, end) => {
+  try {
+    const bufferStart = new Date(start)
+    bufferStart.setDate(bufferStart.getDate() - 30)
+
+    const startStr = toLocalDateString(bufferStart)
+    const endStr = toLocalDateString(end)
+
+    const res = await fetch(`${apiBaseUrl}health_records?start=${startStr}&end=${endStr}`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const all = await res.json()
+
+    // Normalize date to YYYY-MM-DD for easy matching
+    const mapped = all.map(r => ({ ...r, date_iso: formatToISO(r.date) }))
+    healthRecords.value = mapped
+  } catch (err) {
+    console.error('Failed to load health records', err)
+  }
+}
+
 const isInitialLoad = ref(true)
 
 // --- Calendar Event Handlers ---
@@ -196,6 +219,7 @@ const handleDatesSet = async (arg) => {
   }
 
   await fetchActivities(arg.start, arg.end)
+  await fetchHealthRecords(arg.start, arg.end)
 }
 
 const handleEventClick = (clickInfo: any) => {
@@ -264,6 +288,20 @@ onMounted(async () => {
   api.gotoDate(routeDate)
   await nextTick()
   programmaticNavigation.value = false
+  // After programmatic navigation, ensure current view is populated
+  try {
+    const current = api.getDate()
+    const viewStart = new Date(current.getFullYear(), current.getMonth(), 1)
+    const viewEnd = new Date(current.getFullYear(), current.getMonth() + 1, 0)
+    if (sportsLoaded.value) {
+      await fetchActivities(viewStart, viewEnd)
+      await fetchHealthRecords(viewStart, viewEnd)
+    } else {
+      pendingRange.value = { start: viewStart, end: viewEnd }
+    }
+  } catch (err) {
+    console.error('Failed to populate initial calendar range', err)
+  }
 })
 
 const toLocalDateString = (date: Date) => {
@@ -279,6 +317,63 @@ const formatToISO = (dateStr: string) => {
   // Returns 'YYYY-MM-DD'
   return d.toISOString().split('T')[0];
 };
+
+// Render health records into the calendar DOM after they are loaded.
+const renderHealthRecordsToDOM = () => {
+  // remove existing containers to avoid duplicates
+  document.querySelectorAll('.health-records').forEach(el => el.remove())
+
+  healthRecords.value.forEach(rec => {
+    const dateKey = rec.date_iso
+    if (!dateKey) return
+
+    // FullCalendar day cells have a data-date attribute on the td
+    const cell = document.querySelector(`[data-date="${dateKey}"]`)
+    if (!cell) return
+
+    // Ensure cell is positioned, then place container absolutely at the bottom
+    const dayContent = (cell.querySelector('.fc-daygrid-day-bottom') || cell)
+    const parent = cell
+    if (parent && getComputedStyle(parent).position === 'static') {
+      parent.style.position = 'relative'
+    }
+
+    const container = document.createElement('div')
+    container.className = 'health-records'
+    container.style.fontSize = '0.78rem'
+    container.style.position = 'absolute'
+    container.style.left = '4px'
+    container.style.right = '4px'
+    container.style.bottom = '4px'
+    container.style.display = 'flex'
+    container.style.flexDirection = 'column'
+    container.style.gap = '2px'
+    container.style.pointerEvents = 'auto'
+
+    const item = document.createElement('div')
+    item.textContent = rec.description || rec.summary || rec.type || 'Health'
+    item.title = rec.description || rec.summary || ''
+    item.style.whiteSpace = 'nowrap'
+    item.style.overflow = 'hidden'
+    item.style.textOverflow = 'ellipsis'
+    item.style.cursor = 'pointer'
+    item.style.color = '#2b6cb0'
+    item.style.background = 'transparent'
+    item.onclick = (e) => {
+      e.stopPropagation()
+      router.push({ name: 'health', params: { id: rec.id }, query: route.query })
+    }
+
+    container.appendChild(item)
+    dayContent.appendChild(container)
+  })
+}
+
+// When healthRecords change, render them into the calendar.
+watch(healthRecords, async () => {
+  await nextTick()
+  renderHealthRecordsToDOM()
+}, { deep: true })
 </script>
 
 <style scoped>
@@ -328,5 +423,17 @@ const formatToISO = (dateStr: string) => {
 /* Remove any stray double-borders on the right */
 :deep(.fc-scrollgrid-section-sticky > td) {
   border-right: none !important;
+}
+
+.fc-daygrid-event-harness.health-records {
+    margin-top: auto; /* Pushes the element to the bottom of the flex container */
+    margin-bottom: 4px;
+}
+
+/* Ensure the day cell uses flex layout to allow the margin-top trick to work */
+.fc-daygrid-day-events {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 }
 </style>
