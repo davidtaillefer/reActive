@@ -7,11 +7,14 @@ from collections import deque
 
 from typing import Optional, List, Dict
 from ..parsers.fit_parser import parse_fit
+from app.services.muscle_service import load_exercise_map, compute_muscle_load
+from types import SimpleNamespace
 from ..parsers.tcx_parser import parse_tcx
 from ..processors.activity import finalize_activity
 from ..serializers import activity_to_dict
 from lib.metrics_availability import compute_metrics_availability
-from flask import Blueprint, current_app
+from flask import Blueprint, current_app, request
+import json
 from garmin_fit_sdk import Decoder, Stream
 
 hrm_bp = Blueprint("hrm", __name__)  
@@ -128,9 +131,67 @@ def readhrm(hrmfile):
 
     d = activity_to_dict(activity)
 
+    # If a sidecar sets JSON exists (from edits), load and replace sets
+    try:
+        if file_extension == ".fit":
+            sidecar_path = os.path.join(gps_base_path, "fit", f"{file_name}.sets.json")
+        else:
+            sidecar_path = os.path.join(gps_base_path, "tcx", f"{file_name}.sets.json")
+
+        if os.path.exists(sidecar_path):
+            with open(sidecar_path, 'r') as sf:
+                side_sets = json.load(sf)
+                if isinstance(side_sets, list):
+                    d["sets"] = side_sets
+
+                    # Recompute muscle loads from edited sets so downstream UI (muscle map) uses updated data
+                    try:
+                        # convert dicts to objects expected by compute_muscle_load
+                        converted = [SimpleNamespace(**s) if isinstance(s, dict) else s for s in side_sets]
+                        exercise_map, exercise_lookup = load_exercise_map()
+                        muscle_loads = compute_muscle_load(converted, exercise_map)
+                        if muscle_loads:
+                            d["muscles"] = {"load": muscle_loads}
+                    except Exception:
+                        # ignore muscle recompute errors
+                        pass
+    except Exception:
+        # ignore sidecar read errors
+        pass
+
     # compute metrics availability from serialized track
     track = d.get("track", []) or []
 
     d["metricsAvailability"] = compute_metrics_availability(track, d.get("muscles"))
 
     return d
+
+
+
+@hrm_bp.route("/hrm/<hrmfile>/sets", methods=["POST"])
+def save_hrm_sets(hrmfile):
+    """Save edited sets to a sidecar JSON file next to the original HRM file."""
+    try:
+        payload = request.get_json()
+        sets = payload.get('sets') if payload else None
+        if not isinstance(sets, list):
+            return {"error": "Invalid payload"}, 400
+
+        file_name, file_extension = os.path.splitext(hrmfile)
+        gps_base_path = os.path.join(current_app.config["BASE_DATA_DIR"], "gps")
+
+        if file_extension == ".fit":
+            base_path = os.path.join(gps_base_path, "fit")
+        elif file_extension == ".tcx":
+            base_path = os.path.join(gps_base_path, "tcx")
+        else:
+            return {"error": "Unsupported file type"}, 400
+
+        sidecar_path = os.path.join(base_path, f"{file_name}.sets.json")
+        with open(sidecar_path, 'w') as sf:
+            json.dump(sets, sf)
+
+        return {"status": "ok"}
+    except Exception as e:
+        current_app.logger.exception('failed to save sets')
+        return {"error": "failed to save sets"}, 500

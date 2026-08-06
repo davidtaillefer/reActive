@@ -49,6 +49,18 @@ def trigger_muscle_fatigue_update(user_id, hrmfile, workout_date):
         print(f"[muscle fatigue] Error updating fatigue: {e}")
         return None
 
+
+# Admin: flush exercise map cache
+@activities_bp.route('/admin/cache/exercise_map/flush', methods=['POST'])
+def flush_exercise_map_cache():
+    try:
+        from ..services.muscle_service import invalidate_exercise_map_cache
+        invalidate_exercise_map_cache()
+        return jsonify({'status': 'ok', 'msg': 'exercise map cache flushed'})
+    except Exception as e:
+        print('Error flushing cache:', e)
+        return jsonify({'status': 'error', 'msg': 'failed to flush cache'}), 500
+
 # GET all activity records 
         
 @activities_bp.route('/activities')

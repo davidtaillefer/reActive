@@ -3,6 +3,8 @@ import pymysql
 import difflib
 import json
 from datetime import datetime, timezone, date
+import time
+import threading
 
 from ..db import exdb
 from ..utils.user_utils import get_user_uuid
@@ -10,6 +12,10 @@ from ..utils.user_utils import get_user_uuid
 # cache variables (module-level)
 _cached_muscle_map = None
 _cached_lookup_map = None
+_cached_map_timestamp = 0
+_cache_lock = threading.Lock()
+# default cache TTL (seconds)
+CACHE_TTL = 60 * 5  # 5 minutes
 
 BODYWEIGHT_FACTORS = {
     "push_up": 0.65,
@@ -55,14 +61,26 @@ def compute_set_load(set_data, user_weight=None):
     return 0
 
 
-def load_exercise_map(): #add force_refresh=False
-    
-    # global _cached_muscle_map, _cached_lookup_map
+def load_exercise_map(force_refresh: bool = False):
+    """Load exercise->muscle maps and an exercise lookup map.
 
-    # if not force_refresh and _cached_muscle_map and _cached_lookup_map:
-    #     return _cached_muscle_map, _cached_lookup_map
-    
-    conn = exdb.connect()
+    Results are cached in-process for `CACHE_TTL` seconds. Pass
+    `force_refresh=True` to bypass the cache and reload from DB.
+    """
+    global _cached_muscle_map, _cached_lookup_map, _cached_map_timestamp
+
+    # fast-path: return cached if fresh
+    if not force_refresh and _cached_muscle_map and _cached_lookup_map:
+        if (time.time() - _cached_map_timestamp) < CACHE_TTL:
+            return _cached_muscle_map, _cached_lookup_map
+
+    # Acquire lock and double-check to avoid thundering herd
+    with _cache_lock:
+        if not force_refresh and _cached_muscle_map and _cached_lookup_map:
+            if (time.time() - _cached_map_timestamp) < CACHE_TTL:
+                return _cached_muscle_map, _cached_lookup_map
+
+        conn = exdb.connect()
     cursor = conn.cursor(pymysql.cursors.DictCursor)
 
     # --------------------------------------------------
@@ -162,11 +180,25 @@ def load_exercise_map(): #add force_refresh=False
         print(f"{k} → {v}")
 
     print(f"Total lookup entries: {len(exercise_lookup)}\n")
-    
-    # _cached_muscle_map = final_map
-    # _cached_lookup_map = exercise_lookup
+    # update module cache and timestamp
+    _cached_muscle_map = final_map
+    _cached_lookup_map = exercise_lookup
+    _cached_map_timestamp = time.time()
 
     return final_map, exercise_lookup
+
+
+def invalidate_exercise_map_cache():
+    """Clear the in-memory cache for the exercise map.
+
+    Useful for admin endpoints or tests to ensure subsequent calls
+    reload from the database.
+    """
+    global _cached_muscle_map, _cached_lookup_map, _cached_map_timestamp
+    with _cache_lock:
+        _cached_muscle_map = None
+        _cached_lookup_map = None
+        _cached_map_timestamp = 0
 
 def compute_muscle_load(sets, exercise_map):
     muscle_load = {}

@@ -66,7 +66,7 @@
     <BRow class="mt-3">
       <BCol cols="12">
         <ActivityLapsTable :hrmData="hrmData" :sportUnits="sportUnits" :sportPace="sportPace"/>
-        <ActivitySetsTable :hrmData="hrmData" />
+        <ActivitySetsTable :hrmData="hrmData" :hrmfile="hrmfile" />
       </BCol>
     </BRow>
 
