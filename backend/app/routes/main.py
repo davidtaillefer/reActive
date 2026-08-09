@@ -28,6 +28,8 @@ import time
 import pymysql
 from PIL import Image
 from ..utils import safe_close
+from ..utils.auth import login_required
+from ..utils.user_utils import get_user_uuid
 
 
 main_bp = Blueprint("main", __name__)
@@ -346,13 +348,16 @@ def equipment2(eqid):
 
 # GET the total distance for an equipment by id 
         
+
 @main_bp.route('/equipment/usage/<int:number>')
+@login_required
 def equipmentusage(number):
     try:
+        user_id = get_user_uuid()
         conn = exdb.connect()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
-        sql = "SELECT COALESCE(SUM(distance), 0) AS total_distance FROM activities WHERE equipment = %s;"
-        cursor.execute(sql, (number,))
+        sql = "SELECT COALESCE(SUM(distance), 0) AS total_distance FROM activities WHERE equipment = %s AND user_id = %s;"
+        cursor.execute(sql, (number, user_id))
         total = cursor.fetchone()
         res = jsonify(total)
         res.status_code = 200
@@ -699,10 +704,11 @@ def health():
     try:
         startdate = request.args.get("start")
         enddate = request.args.get("end")
+        user_id = get_user_uuid()
         conn = exdb.connect()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
-        sql = "SELECT * FROM health WHERE date BETWEEN %s and %s ORDER BY date"
-        data = (startdate, enddate)
+        sql = "SELECT * FROM health WHERE user_id = %s AND date BETWEEN %s and %s ORDER BY date"
+        data = (user_id, startdate, enddate)
         cursor.execute(sql, data)
         health = cursor.fetchall()
         res = jsonify(health)
@@ -721,8 +727,9 @@ def readhealth(healthid):
     try:
         conn = exdb.connect()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
-        sql = "SELECT * FROM health WHERE id=%s"
-        cursor.execute(sql, healthid)
+        user_id = get_user_uuid()
+        sql = "SELECT * FROM health WHERE id=%s AND user_id = %s"
+        cursor.execute(sql, (healthid, user_id))
         health = cursor.fetchone()
         print(health)
         res = jsonify(health)
@@ -745,13 +752,14 @@ def get_last_known_weight():
     query = """
         SELECT weight /1000 as weight, date 
         FROM health 
-        WHERE date < %s AND weight IS NOT NULL 
+        WHERE user_id = %s AND date < %s AND weight IS NOT NULL 
         ORDER BY date DESC 
         LIMIT 1
     """
+    user_id = get_user_uuid()
     conn = exdb.connect()
     cursor = conn.cursor(pymysql.cursors.DictCursor)
-    cursor.execute(query, (before_date))
+    cursor.execute(query, (user_id, before_date))
     result = cursor.fetchone()
     return jsonify(result)
 
@@ -765,10 +773,11 @@ def stats():
     try:
         startdate = request.args.get("start")
         enddate = request.args.get("end")
+        user_id = get_user_uuid()
         conn = exdb.connect()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
-        sql = "SELECT * FROM stats WHERE date BETWEEN %s and %s ORDER BY date"
-        data = (startdate, enddate)
+        sql = "SELECT * FROM stats WHERE user_id = %s AND date BETWEEN %s and %s ORDER BY date"
+        data = (user_id, startdate, enddate)
         cursor.execute(sql, data)
         health = cursor.fetchall()
         res = jsonify(health)

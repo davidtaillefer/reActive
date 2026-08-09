@@ -2,7 +2,11 @@ import os
 import pymysql
 from ..db import exdb
 from flask import Blueprint, jsonify, request, current_app
+from ..utils.auth import login_required
+from ..utils.user_utils import get_user_uuid
 from datetime import datetime, timedelta
+from ..parsers.fit_parser import parse_fit
+from ..services.muscle_service import update_muscle_fatigue
 
 activities_bp = Blueprint('activities', __name__)
 
@@ -27,9 +31,6 @@ def save_activity_muscle_loads(activity_id, muscle_loads):
 def trigger_muscle_fatigue_update(user_id, hrmfile, workout_date):
     """Parse the FIT file and update muscle fatigue in the database."""
     try:
-        from ..parsers.fit_parser import parse_fit
-        from ..services.muscle_service import update_muscle_fatigue
-        from ..utils.user_utils import get_user_uuid
 
         gps_base_path = os.path.join(current_app.config["BASE_DATA_DIR"], "gps", "fit")
         file_path = os.path.join(gps_base_path, hrmfile)
@@ -52,6 +53,7 @@ def trigger_muscle_fatigue_update(user_id, hrmfile, workout_date):
 
 # Admin: flush exercise map cache
 @activities_bp.route('/admin/cache/exercise_map/flush', methods=['POST'])
+@login_required
 def flush_exercise_map_cache():
     try:
         from ..services.muscle_service import invalidate_exercise_map_cache
@@ -62,19 +64,23 @@ def flush_exercise_map_cache():
         return jsonify({'status': 'error', 'msg': 'failed to flush cache'}), 500
 
 # GET all activity records 
-        
 @activities_bp.route('/activities')
+@login_required
 def activities():
+    conn = None
+    cursor = None
     try:
+        user_id = get_user_uuid()
         sport = request.args.get('sport')
         startdate = request.args.get('start')
         enddate = request.args.get('end')
         conn = exdb.connect()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
-        sql = "SELECT * FROM activities WHERE (%s IS NULL OR sport = %s) AND date BETWEEN %s and %s"
-        data = (sport, sport, startdate, enddate)
+        sql = "SELECT * FROM activities WHERE user_id = %s AND (%s IS NULL OR sport = %s) AND date BETWEEN %s and %s"
+        data = (user_id, sport, sport, startdate, enddate)
         cursor.execute(sql, data)
         activities = cursor.fetchall()
+        print(f"[activities] user_id={user_id} fetched {len(activities)} activities (sport={sport} start={startdate} end={enddate})")
         for activity in activities:  
             activity['date'] = activity['date'] + timedelta(hours=activity['tzoffset'])
         res = jsonify(activities)
@@ -84,20 +90,27 @@ def activities():
     except Exception as e:
         print(e)
     finally:
-        cursor.close() 
-        conn.close()
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 # GET an individual activity by id
 
 @activities_bp.route('/activities/<int:activityid>')
+@login_required
 def activity(activityid):
+    conn = None
+    cursor = None
     try:
         conn = exdb.connect()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         # cursor = exdb.get_db().cursor() 
-        sql = "SELECT * FROM activities WHERE id=%s"
-        cursor.execute(sql, activityid)
+        user_id = get_user_uuid()
+        sql = "SELECT * FROM activities WHERE id=%s AND user_id = %s"
+        cursor.execute(sql, (activityid, user_id))
         activity = cursor.fetchone()
+        print(f"[activities] fetch activity id={activityid} user_id={user_id} found={bool(activity)}")
         res = jsonify(activity)
         res.status_code = 200
 
@@ -105,19 +118,25 @@ def activity(activityid):
     except Exception as e:
         print(e)
     finally:
-        cursor.close()
-        conn.close()
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 # GET the most recent x activity records 
-        
 @activities_bp.route('/activities/recent/<int:number>')
+@login_required
 def recentactivities(number):
+    conn = None
+    cursor = None
     try:
         conn = exdb.connect()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
-        sql = "SELECT * FROM activities ORDER BY date DESC LIMIT %s"
-        cursor.execute(sql, number)
+        user_id = get_user_uuid()
+        sql = "SELECT * FROM activities WHERE user_id = %s ORDER BY date DESC LIMIT %s"
+        cursor.execute(sql, (user_id, number))
         activities = cursor.fetchall()
+        print(f"[activities] recent user_id={user_id} count={len(activities)}")
         for activity in activities: 
             activity['date'] = activity['date'] + timedelta(hours=activity['tzoffset'])
         res = jsonify(activities)
@@ -127,14 +146,18 @@ def recentactivities(number):
     except Exception as e:
         print(e)
     finally:
-        cursor.close() 
-        conn.close()
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 # Create new activity record        
-    
 @activities_bp.route('/activities', methods=['POST'])
+@login_required
 def createactivity():
     print("Received request to create activity with data:", request.get_json())
+    conn = None
+    cursor = None
     try:
         newrecord = request.get_json()
         sport = newrecord['sport']
@@ -187,9 +210,12 @@ def createactivity():
             
         print(f"Received new activity: Sport={sport}, Date={nd}, Duration={duration}, Training Load={training_load}")
     
-        # insert activity record in database
-        sqlQuery = "INSERT INTO activities(sport, subsport, date, duration, intensity, distance, avgspeed, latitude, longitude, hrmfile, equipment, heartrate, comments, ascent, calories, avgcadence, avgpower, device, name, training_load, workout_feel, workout_rpe, ate, ante, tzoffset) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-        data = (sport, subsport, nd, duration, intensity, distance, avgspeed, latitude, longitude, hrmfile, equipment, heartrate, comments, ascent, calories, avgcadence, avgpower, device, name, training_load, workout_feel, workout_rpe, ate, ante, tzoffset)
+        # insert activity record in database (associate with user)
+        print("Inserting new activity into database...")
+        user_id = get_user_uuid()
+        print(f"User ID for new activity: {user_id}")
+        sqlQuery = "INSERT INTO activities(user_id, sport, subsport, date, duration, intensity, distance, avgspeed, latitude, longitude, hrmfile, equipment, heartrate, comments, ascent, calories, avgcadence, avgpower, device, name, training_load, workout_feel, workout_rpe, ate, ante, tzoffset) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        data = (user_id, sport, subsport, nd, duration, intensity, distance, avgspeed, latitude, longitude, hrmfile, equipment, heartrate, comments, ascent, calories, avgcadence, avgpower, device, name, training_load, workout_feel, workout_rpe, ate, ante, tzoffset)
         conn = exdb.connect()
         cursor = exdb.get_db().cursor()
         cursor.execute(sqlQuery, data)
@@ -198,8 +224,6 @@ def createactivity():
 
         # If this is a strength workout with a FIT file, update muscle fatigue
         if sport == STRENGTH_SPORT_ID and hrmfile:
-            from ..utils.user_utils import get_user_uuid
-            user_id = get_user_uuid()
             muscle_loads = trigger_muscle_fatigue_update(user_id, hrmfile, nd)
             if muscle_loads and new_activity_id:
                 save_activity_muscle_loads(new_activity_id, muscle_loads)
@@ -217,13 +241,17 @@ def createactivity():
     except Exception as e:
         print(e)
     finally:
-        cursor.close() 
-        conn.close()
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 # Update activity record        
-    
 @activities_bp.route('/activities/<int:id>', methods=['PUT'])
+@login_required
 def updateactivity(id):
+    conn = None
+    cursor = None
     try:
         newrecord = request.get_json()
         name = newrecord['name']
@@ -273,10 +301,11 @@ def updateactivity(id):
         hrmfile = newrecord['hrmfile']
         secondhrmfile = newrecord['secondhrmfile']
 
-        # update activity record in database
-        sqlQuery = "UPDATE activities SET name = %s, date = %s, sport = %s, subsport = %s, duration = %s, intensity = %s, distance = %s, avgspeed = %s, latitude = %s, longitude = %s, equipment = %s, heartrate = %s, comments = %s, ascent = %s, calories = %s, avgcadence = %s, avgpower = %s, device = %s, training_load = %s, workout_feel = %s, workout_rpe = %s, ate = %s, ante = %s, tzoffset = %s, hrmfile = %s, secondhrmfile = %s WHERE id = %s"
+        # update activity record in database (ensure user owns record)
+        user_id = get_user_uuid()
+        sqlQuery = "UPDATE activities SET name = %s, date = %s, sport = %s, subsport = %s, duration = %s, intensity = %s, distance = %s, avgspeed = %s, latitude = %s, longitude = %s, equipment = %s, heartrate = %s, comments = %s, ascent = %s, calories = %s, avgcadence = %s, avgpower = %s, device = %s, training_load = %s, workout_feel = %s, workout_rpe = %s, ate = %s, ante = %s, tzoffset = %s, hrmfile = %s, secondhrmfile = %s WHERE id = %s AND user_id = %s"
         # 
-        data = (name, nd, sport, subsport, duration, intensity, distance, avgspeed, latitude, longitude, equipment, heartrate, comments, ascent, calories, avgcadence, avgpower, device, training_load, workout_feel, workout_rpe, ate, ante, tzoffset, hrmfile, secondhrmfile, id)
+        data = (name, nd, sport, subsport, duration, intensity, distance, avgspeed, latitude, longitude, equipment, heartrate, comments, ascent, calories, avgcadence, avgpower, device, training_load, workout_feel, workout_rpe, ate, ante, tzoffset, hrmfile, secondhrmfile, id, user_id)
         #  
         conn = exdb.connect()
         cursor = conn.cursor()
@@ -291,15 +320,19 @@ def updateactivity(id):
     except Exception as e:
         print(e)
     finally:
-        cursor.close() 
-        conn.close()
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()
 
 @activities_bp.route('/activities/bounds', methods=['GET'])
+@login_required
 def get_activity_bounds():
-    # Find the absolute first and last activity dates
-    query = "SELECT MIN(date), MAX(date) FROM activities"
+    # Find the absolute first and last activity dates (for the current user)
+    user_id = get_user_uuid()
+    query = "SELECT MIN(date), MAX(date) FROM activities WHERE user_id = %s"
     cursor = exdb.get_db().cursor()
-    cursor.execute(query)
+    cursor.execute(query, (user_id,))
     result = cursor.fetchone()
     
     return jsonify({

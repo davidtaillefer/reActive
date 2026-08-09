@@ -19,7 +19,8 @@
                 :disabled="isGarminSyncing" style="border: none;">
                 <!-- Token status badge (upper-right) -->
                 <div class="position-absolute top-0 end-0 p-2">
-                  <span v-if="tokenStatus.has_tokens" class="badge bg-success">Connected</span>
+                  <span v-if="tokenStatus.has_tokens && tokenStatus.is_owner_match" class="badge bg-success">Connected</span>
+                  <span v-else-if="tokenStatus.has_tokens && !tokenStatus.is_owner_match" class="badge bg-danger">Connected (other account)</span>
                   <span v-else-if="tokenStatus.has_env_credentials" class="badge bg-warning text-dark">Env Creds</span>
                   <span v-else class="badge bg-secondary">No Creds</span>
                 </div>
@@ -463,7 +464,7 @@ const mfaCode = ref('');
 const mfaSubmitting = ref(false);
 let mfaResumeId: string | null = null;
 const showLogoutConfirm = ref(false);
-const tokenStatus = ref({ has_tokens: false, has_env_credentials: false });
+const tokenStatus = ref({ has_tokens: false, has_env_credentials: false, is_owner_match: false });
 
 const startGarminSync = async () => {
   isGarminSyncing.value = true;
@@ -529,14 +530,22 @@ const submitCredentials = async () => {
       mfaResumeId = data.resume_id;
       showCredentialsModal.value = false;
       showMfaModal.value = true;
-        await refreshTokenStatus();
+      await refreshTokenStatus();
       return;
     }
 
     if (res.ok) {
+      const data = await res.json();
       showCredentialsModal.value = false;
+      // Update token status from returned Garmin id
+      tokenStatus.value = {
+        has_tokens: true,
+        has_env_credentials: tokenStatus.value.has_env_credentials,
+        is_owner_match: true,
+        tokens_garmin_id: data.garmin_id,
+        stored_garmin_id: data.garmin_id,
+      };
       // successful login, start sync
-      await refreshTokenStatus();
       await startGarminSync();
       return;
     }
@@ -562,11 +571,19 @@ const submitMfa = async () => {
     });
 
     if (res.ok) {
+      const data = await res.json();
       showMfaModal.value = false;
       mfaResumeId = null;
       mfaCode.value = '';
+      // Update token status from returned Garmin id
+      tokenStatus.value = {
+        has_tokens: true,
+        has_env_credentials: tokenStatus.value.has_env_credentials,
+        is_owner_match: true,
+        tokens_garmin_id: data.garmin_id,
+        stored_garmin_id: data.garmin_id,
+      };
       // tokens saved, start sync
-      await refreshTokenStatus();
       await startGarminSync();
       return;
     }
@@ -582,15 +599,30 @@ const submitMfa = async () => {
 }
 
 const handleGarminSync = async () => {
-  // Check if tokens or env credentials are present; if not prompt for credentials
+  // Check credential status and require ownership match before syncing
   const status = await checkCredentialStatus();
-  if (status.has_tokens || status.has_env_credentials) {
+  if (status.has_tokens && status.is_owner_match) {
     await startGarminSync();
-  } else {
-    credEmail.value = '';
-    credPassword.value = '';
-    showCredentialsModal.value = true;
+    return;
   }
+
+  if (status.has_tokens && !status.is_owner_match) {
+    // Tokens exist but belong to a different Garmin account
+    const proceed = confirm('Stored Garmin tokens belong to a different Garmin account. Clear tokens now so you can log in with your own account?');
+    if (proceed) {
+      await handleGarminLogout();
+      // prompt for credentials after clearing
+      credEmail.value = '';
+      credPassword.value = '';
+      showCredentialsModal.value = true;
+    }
+    return;
+  }
+
+  // No tokens available - prompt for credentials
+  credEmail.value = '';
+  credPassword.value = '';
+  showCredentialsModal.value = true;
 }
 
 const handleGarminLogout = async () => {

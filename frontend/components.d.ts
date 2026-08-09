@@ -23,6 +23,8 @@ declare module 'vue' {
     BCol: typeof import('bootstrap-vue-next/components/BContainer')['BCol']
     BCollapse: typeof import('bootstrap-vue-next/components/BCollapse')['BCollapse']
     BContainer: typeof import('bootstrap-vue-next/components/BContainer')['BContainer']
+    BDropdown: typeof import('bootstrap-vue-next/components/BDropdown')['BDropdown']
+    BDropdownItem: typeof import('bootstrap-vue-next/components/BDropdown')['BDropdownItem']
     BForm: typeof import('bootstrap-vue-next/components/BForm')['BForm']
     BFormFile: typeof import('bootstrap-vue-next/components/BFormFile')['BFormFile']
     BFormGroup: typeof import('bootstrap-vue-next/components/BFormGroup')['BFormGroup']

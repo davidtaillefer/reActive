@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request, current_app
 from ..db import exdb
 from ..utils import safe_close
 from ..utils.user_utils import get_user_uuid
+from ..utils.auth import login_required
 import pymysql.cursors
 import os
 from werkzeug.utils import secure_filename
@@ -12,6 +13,7 @@ from werkzeug.utils import secure_filename
 health_records_bp = Blueprint("health_records", __name__)
 
 @health_records_bp.route("/health_records", methods=['GET'])
+@login_required
 def health_records():
     
     user_id = get_user_uuid()
@@ -34,6 +36,7 @@ def health_records():
 
 
 @health_records_bp.route('/health_documents/file/<int:doc_id>')
+@login_required
 def serve_health_document_file(doc_id):
     """Serve the stored file for a health document by its document id."""
     try:
@@ -44,6 +47,13 @@ def serve_health_document_file(doc_id):
         doc = cursor.fetchone()
 
         if not doc:
+            return jsonify({"message": "Document not found"}), 404
+
+        # Ensure the document belongs to the requesting user
+        cursor.execute("SELECT user_id FROM health_records WHERE id = %s", (doc.get('health_record_id'),))
+        hr = cursor.fetchone()
+        user_id = get_user_uuid()
+        if not hr or hr.get('user_id') != user_id:
             return jsonify({"message": "Document not found"}), 404
 
         filename = doc.get('filename')
@@ -75,6 +85,7 @@ def serve_health_document_file(doc_id):
         safe_close(cursor if 'cursor' in locals() else None, conn if 'conn' in locals() else None)
 
 @health_records_bp.route("/health_records/<int:record_id>", methods=['GET'])
+@login_required
 def get_health_record(record_id):
     user_id = get_user_uuid()
 
@@ -100,6 +111,7 @@ def get_health_record(record_id):
         safe_close(cursor if 'cursor' in locals() else None, conn if 'conn' in locals() else None)
 
 @health_records_bp.route("/health_records", methods=['POST'])
+@login_required
 def add_health_record():
     try:
         newrecord = request.get_json()
@@ -138,6 +150,7 @@ def add_health_record():
         safe_close(cursor if 'cursor' in locals() else None, conn if 'conn' in locals() else None)
 
 @health_records_bp.route("/health_records/<int:record_id>", methods=['PUT'])
+@login_required
 def update_health_record(record_id):
     try:
         updatedrecord = request.get_json()
@@ -176,6 +189,7 @@ def update_health_record(record_id):
         safe_close(cursor if 'cursor' in locals() else None, conn if 'conn' in locals() else None)
         
 @health_records_bp.route("/health_records/<int:record_id>", methods=['DELETE'])
+@login_required
 def delete_health_record(record_id):
     user_id = get_user_uuid()
 
@@ -196,6 +210,7 @@ def delete_health_record(record_id):
         safe_close(cursor if 'cursor' in locals() else None, conn if 'conn' in locals() else None)
 
 @health_records_bp.route("/health_document/<int:record_id>", methods=['GET'])
+@login_required
 def get_health_document(record_id):
 
     try:
@@ -203,8 +218,16 @@ def get_health_document(record_id):
         print("Connected to database for fetching health documents")
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         sql = "SELECT * FROM health_record_documents WHERE id = %s"
-        cursor.execute(sql, (record_id))
+        cursor.execute(sql, (record_id,))
         record = cursor.fetchone()
+
+        # Verify ownership via parent health_record
+        if record:
+            cursor.execute("SELECT user_id FROM health_records WHERE id = %s", (record.get('health_record_id'),))
+            hr = cursor.fetchone()
+            user_id = get_user_uuid()
+            if not hr or hr.get('user_id') != user_id:
+                return jsonify({"message": "Health record not found"}), 404
 
         if record:
             res = jsonify(record)
@@ -220,14 +243,22 @@ def get_health_document(record_id):
         safe_close(cursor if 'cursor' in locals() else None, conn if 'conn' in locals() else None)
 
 @health_records_bp.route("/health_documents/<int:record_id>", methods=['GET'])
+@login_required
 def get_health_documents(record_id):
 
     try:
         conn = exdb.connect()
         print("Connected to database for fetching health documents")
         cursor = conn.cursor(pymysql.cursors.DictCursor)
+        # Verify parent ownership
+        cursor.execute("SELECT user_id FROM health_records WHERE id = %s", (record_id,))
+        hr = cursor.fetchone()
+        user_id = get_user_uuid()
+        if not hr or hr.get('user_id') != user_id:
+            return jsonify({"message": "Health record not found"}), 404
+
         sql = "SELECT * FROM health_record_documents WHERE health_record_id = %s"
-        cursor.execute(sql, (record_id))
+        cursor.execute(sql, (record_id,))
         record = cursor.fetchall()
 
         if record:
@@ -245,6 +276,7 @@ def get_health_documents(record_id):
 
 
 @health_records_bp.route('/health_documents/<int:health_record_id>', methods=['POST'])
+@login_required
 def upload_health_document(health_record_id):
     """Upload a document for a health record. Preserves original filename where possible.
     Expects multipart form-data with field 'file'."""
@@ -275,9 +307,16 @@ def upload_health_document(health_record_id):
         file_path = os.path.join(folder, final_name)
         file.save(file_path)
 
-        # Insert metadata into DB
+        # Verify health record ownership
         conn = exdb.connect()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute("SELECT user_id FROM health_records WHERE id = %s", (health_record_id,))
+        hr = cursor.fetchone()
+        user_id = get_user_uuid()
+        if not hr or hr.get('user_id') != user_id:
+            return jsonify({'message': 'Health record not found'}), 404
+
+        # Insert metadata into DB
         now = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         sql = "INSERT INTO health_record_documents (health_record_id, filename, created_at, updated_at) VALUES (%s, %s, %s, %s)"
         cursor.execute(sql, (health_record_id, final_name, now, now))

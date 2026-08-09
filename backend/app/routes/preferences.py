@@ -1,11 +1,14 @@
 from flask import Blueprint, request, jsonify
 from ..utils.user_utils import get_user_uuid
+from ..utils.auth import login_required
 from app.services.preferences_service import get_preferences, save_preferences
 from app import db  # your DB connection
 
 preferences_bp = Blueprint("preferences", __name__)
 
+
 @preferences_bp.route("/preferences", methods=["GET"])
+@login_required
 def fetch_preferences():
     user_uuid = get_user_uuid()
     uuid = 1000
@@ -18,7 +21,9 @@ def fetch_preferences():
     })
 
 
+
 @preferences_bp.route("/preferences", methods=["POST"])
+@login_required
 def update_preferences():
     user_uuid = get_user_uuid()
     data = request.json or {}

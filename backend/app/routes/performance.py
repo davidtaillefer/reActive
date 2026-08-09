@@ -1,15 +1,18 @@
 from flask import Blueprint, jsonify, request
 from ..utils.user_utils import get_user_uuid
+from ..utils.auth import login_required
 from ..services.performance_service import get_performance_summary, get_performance_history
 
 performance_bp = Blueprint("performance", __name__)
 
 
 @performance_bp.route("/performance", methods=['GET'])
+@login_required
 def performance():
     user_id = get_user_uuid()
 
     data = get_performance_summary(user_id)
+    print(f"[performance] user_id={user_id} performance summary keys={list(data.keys())}")
 
     if request.args.get("history", "false").lower() in ("1", "true", "yes"):
         start_date = request.args.get("start")

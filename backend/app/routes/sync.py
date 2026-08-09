@@ -15,6 +15,8 @@ from typing import Any
 from ..db import exdb
 import config as app_config
 from flask import Blueprint, jsonify, request
+from ..utils.auth import login_required
+from ..utils.user_utils import get_user_uuid
 import uuid
 from pymysql import Error
 from datetime import timedelta, date
@@ -33,7 +35,8 @@ sync_bp = Blueprint('sync', __name__)
 
 @sync_bp.route('/sync')
 def sync():
-    api_instance = init_api(config.email, config.password)
+    # Do not pass global env credentials here — only try per-user tokens.
+    api_instance = init_api()
 
     try:
         if api_instance:
@@ -54,15 +57,14 @@ def sync():
 
 @sync_bp.route('/sync/days/<int:days>')
 def sync_days(days):
-    api_instance = init_api(config.email, config.password)
+    # Use per-user tokens only for scheduled/manual syncs initiated by a user.
+    api_instance = init_api()
     if not api_instance:
         return jsonify({'error': 'Failed to initialize API'}), 500
 
     results = []
     today = date.today()
-    
-    print("Multi-day sync completed. Now downloading activities...")
-    
+        
     downloaded_files = []
     try:
         downloaded_files = download_activities_by_date(api_instance)
@@ -75,13 +77,7 @@ def sync_days(days):
             target_date = today - timedelta(days=i)
             target_date_str = target_date.isoformat()
             
-            # print(f"Syncing data for: {target_date_str}")
-            # print(health_data)
-            # print(stats_data)
-            
             try:
-                # Reuse your existing call_api function
-                # This should handle the "Insert on Duplicate Key Update" logic
                 response = call_api(api_instance, target_date_str)
                 results.append({"date": target_date_str, "status": "success"})
             except Exception as e:
@@ -114,29 +110,143 @@ mfa_sessions: dict[str, dict] = {}
 
 
 @sync_bp.route('/sync/credentials/status', methods=['GET'])
+@login_required
 def credentials_status():
-    """Return whether stored tokens or env credentials are available."""
+    """Return whether stored tokens or env credentials are available.
+
+    Only per-user token files are considered valid for user-initiated syncs.
+    This endpoint also returns the Garmin profile id extracted from the
+    token (if available) and the stored profile id for the app user so the
+    frontend can determine whether the token belongs to the correct account.
+    """
+
     status = {
         "has_tokens": False,
         "has_env_credentials": False,
+        "tokens_garmin_id": None,
+        "stored_garmin_id": None,
+        "is_owner_match": False,
     }
 
-    # Check for token file validity
+    user_id = get_user_uuid()
+
+    # Check for per-user token file and read its profile if present
     try:
-        garmin = Garmin()
-        garmin.login(config.tokenstore)
-        status["has_tokens"] = True
+        token_path = None
+        if user_id and getattr(config, 'tokenstore', None):
+            token_path = os.path.expanduser(config.tokenstore) + f'.{user_id}'
+
+        if token_path and os.path.exists(token_path):
+            try:
+                garmin = Garmin()
+                garmin.login(token_path)
+                status["has_tokens"] = True
+                try:
+                    profile = garmin.get_user_profile() or {}
+                    tokens_garmin_id = profile.get('id')
+                    if tokens_garmin_id is not None:
+                        try:
+                            tokens_garmin_id = int(tokens_garmin_id)
+                        except Exception:
+                            pass
+                    status['tokens_garmin_id'] = tokens_garmin_id
+                except Exception:
+                    status['tokens_garmin_id'] = None
+            except Exception:
+                status["has_tokens"] = False
+        else:
+            status["has_tokens"] = False
     except Exception:
         status["has_tokens"] = False
 
-    # Check for environment-provided credentials
+    # Check for environment-provided credentials (informational only)
     if config.email and config.password:
         status["has_env_credentials"] = True
+
+    # Load stored Garmin id for this app user and compare
+    try:
+        if user_id:
+            stored_garmin_id = _get_stored_garmin_id(user_id)
+            status['stored_garmin_id'] = stored_garmin_id
+            status['is_owner_match'] = (
+                status.get('tokens_garmin_id') is not None
+                and stored_garmin_id is not None
+                and str(status.get('tokens_garmin_id')) == str(stored_garmin_id)
+            )
+    except Exception:
+        status['stored_garmin_id'] = None
+        status['is_owner_match'] = False
 
     return jsonify(status)
 
 
+def _ensure_garmin_accounts_table():
+    """Create a minimal `garmin_accounts` table if it doesn't exist."""
+    try:
+        conn = exdb.connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS garmin_accounts (
+                user_id INT PRIMARY KEY,
+                garmin_id INT(11),
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+        )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+
+def _upsert_garmin_account(user_id: int, garmin_id: int | None):
+    _ensure_garmin_accounts_table()
+    try:
+        conn = exdb.connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO garmin_accounts (user_id, garmin_id)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE garmin_id=VALUES(garmin_id), updated_at=CURRENT_TIMESTAMP
+            """,
+            (user_id, garmin_id),
+        )
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+
+def _get_stored_garmin_id(user_id: int):
+    try:
+        conn = exdb.connect()
+        cursor = conn.cursor()
+        cursor.execute("SELECT garmin_id FROM garmin_accounts WHERE user_id=%s", (user_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return row[0]
+    except Exception:
+        return None
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
+
+
 @sync_bp.route('/sync/credentials', methods=['POST'])
+@login_required
 def credentials_login():
     """Accept email/password JSON and attempt a non-interactive login.
 
@@ -159,9 +269,30 @@ def credentials_login():
             mfa_sessions[resume_id] = {"garmin": garmin, "resume_data": result2}
             return jsonify({"mfa_required": True, "resume_id": resume_id}), 202
 
-        # Successful login
-        garmin.garth.dump(config.tokenstore)
-        return jsonify({"mfa_required": False, "message": "Login successful"}), 200
+        # Successful login — save tokens per-user
+        user_id = get_user_uuid()
+        garmin_id = None
+        token_path = None
+        if getattr(config, 'tokenstore', None):
+            token_path = os.path.expanduser(config.tokenstore) + f'.{user_id}'
+        # ensure parent dir exists
+        if token_path:
+            os.makedirs(os.path.dirname(token_path), exist_ok=True)
+            garmin.garth.dump(token_path)
+            try:
+                profile = garmin.get_user_profile() or {}
+                garmin_id = profile.get('id')
+                if garmin_id is not None:
+                    try:
+                        garmin_id = int(garmin_id)
+                    except Exception:
+                        pass
+                if user_id:
+                    _upsert_garmin_account(user_id, garmin_id)
+            except Exception:
+                pass
+        # Return Garmin id so frontend can update its UI immediately
+        return jsonify({"mfa_required": False, "message": "Login successful", "garmin_id": garmin_id}), 200
 
     except GarminConnectAuthenticationError as e:
         return jsonify({"error": "Authentication failed", "detail": str(e)}), 401
@@ -170,6 +301,7 @@ def credentials_login():
 
 
 @sync_bp.route('/sync/credentials/mfa', methods=['POST'])
+@login_required
 def credentials_mfa():
     """Submit MFA code for an in-progress login identified by `resume_id`."""
     payload = request.get_json(force=True)
@@ -188,11 +320,31 @@ def credentials_mfa():
 
     try:
         garmin.resume_login(resume_data, code)
-        # Save tokens
-        garmin.garth.dump(config.tokenstore)
+        # Save tokens per-user
+        user_id = get_user_uuid()
+        garmin_id = None
+        token_path = None
+        if getattr(config, 'tokenstore', None):
+            token_path = os.path.expanduser(config.tokenstore) + f'.{user_id}'
+        if token_path:
+            os.makedirs(os.path.dirname(token_path), exist_ok=True)
+            garmin.garth.dump(token_path)
+            try:
+                profile = garmin.get_user_profile() or {}
+                garmin_id = profile.get('id')
+                if garmin_id is not None:
+                    try:
+                        garmin_id = int(garmin_id)
+                    except Exception:
+                        pass
+                if user_id:
+                    _upsert_garmin_account(user_id, garmin_id)
+            except Exception:
+                pass
         # Clean up session
         del mfa_sessions[resume_id]
-        return jsonify({"message": "MFA succeeded, tokens saved"}), 200
+        # Return Garmin id so frontend can update its UI immediately
+        return jsonify({"message": "MFA succeeded, tokens saved", "garmin_id": garmin_id}), 200
 
     except GarthHTTPError as garth_error:
         return jsonify({"error": "MFA failed", "detail": str(garth_error)}), 400
@@ -201,11 +353,17 @@ def credentials_mfa():
 
 
 @sync_bp.route('/sync/credentials/logout', methods=['POST'])
+@login_required
 def credentials_logout():
     """Remove stored Garmin token files from disk."""
     removed = []
     errors = []
-    paths = [getattr(config, 'tokenstore', None), getattr(config, 'tokenstore_base64', None)]
+    user_id = get_user_uuid()
+    paths = []
+    if getattr(config, 'tokenstore', None):
+        paths.append(os.path.expanduser(config.tokenstore) + f'.{user_id}')
+    if getattr(config, 'tokenstore_base64', None):
+        paths.append(os.path.expanduser(config.tokenstore_base64) + f'.{user_id}')
 
     for p in paths:
         if not p:
@@ -268,6 +426,8 @@ def get_mfa() -> str:
 def call_api(api, date):
 
     try:
+        user_id = get_user_uuid()
+
         stats = api.get_stats_and_body(date)
         training = api.get_training_status(date)
 
@@ -312,9 +472,9 @@ def call_api(api, date):
             try:
                 sqlQuery = """
                     INSERT INTO health (
-                        date, weight, body_fat, muscle, bone, body_water, bmi, 
+                        user_id, date, weight, body_fat, muscle, bone, body_water, bmi, 
                         min_HR, max_HR, resting_HR, avg_SPO2, min_SPO2
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE 
                         weight = VALUES(weight), 
                         body_fat = VALUES(body_fat),
@@ -330,6 +490,7 @@ def call_api(api, date):
                 """
 
                 data = (
+                    user_id,
                     health_data["date"], 
                     health_data.get("weight"), 
                     health_data.get("body_fat"), 
@@ -359,9 +520,9 @@ def call_api(api, date):
             try:
                 sqlQuery = """
                     INSERT INTO stats (
-                        date, moderate_intensity, vigorous_intensity, intensity_goal, training_status, running_vo2_max, cycling_vo2_max, 
+                        user_id, date, moderate_intensity, vigorous_intensity, intensity_goal, training_status, running_vo2_max, cycling_vo2_max, 
                         total_steps, daily_step_goal, floors_ascended, floors_descended, floor_goal
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE 
                         moderate_intensity = VALUES(moderate_intensity), 
                         vigorous_intensity = VALUES(vigorous_intensity),
@@ -377,6 +538,7 @@ def call_api(api, date):
                 """
 
                 data = (
+                    user_id,
                     stats_data["date"], 
                     stats_data.get("moderate_intensity"), 
                     stats_data.get("vigorous_intensity"), 
@@ -726,14 +888,23 @@ def init_api(email: str | None = None, password: str | None = None) -> Garmin | 
     case it will attempt to log in and may return a Garmin instance or None on
     failure.
     """
-    # Try to login with stored tokens first
+    # Try to login with stored tokens (per-user only). We intentionally
+    # do NOT fall back to a global tokenstore here — doing so can cause
+    # one user's actions to run under another user's Garmin account.
     try:
-        print(f"Attempting to login using stored tokens from: {config.tokenstore}")
-
-        garmin = Garmin()
-        garmin.login(config.tokenstore)
-        print("Successfully logged in using stored tokens!")
-        return garmin
+        user_id = get_user_uuid()
+        if user_id and getattr(config, 'tokenstore', None):
+            per_user_token = os.path.expanduser(config.tokenstore) + f'.{user_id}'
+            try:
+                print(f"Attempting to login using per-user stored tokens from: {per_user_token}")
+                garmin = Garmin()
+                garmin.login(per_user_token)
+                print("Successfully logged in using per-user stored tokens!")
+                return garmin
+            except Exception:
+                print("Per-user tokens not valid or not present; not using global tokens for security")
+        else:
+            print("No per-user tokenstore configured for this request")
 
     except (
         FileNotFoundError,
@@ -741,7 +912,7 @@ def init_api(email: str | None = None, password: str | None = None) -> Garmin | 
         GarminConnectAuthenticationError,
         GarminConnectConnectionError,
     ):
-        print("No valid tokens found.")
+        print("No valid per-user tokens found.")
 
     # If no credentials were provided, do not prompt interactively in containerized
     # environments — return None and let the HTTP endpoints drive the login flow.
@@ -763,8 +934,23 @@ def init_api(email: str | None = None, password: str | None = None) -> Garmin | 
             return None
 
         # Save tokens and return the instance
-        garmin.garth.dump(config.tokenstore)
-        print(f"Login successful! Tokens saved to: {config.tokenstore}")
+        # Prefer saving tokens to a per-user tokenstore so env/admin creds
+        # don't become global tokens that other users will inherit.
+        user_id = None
+        try:
+            user_id = get_user_uuid()
+        except Exception:
+            user_id = None
+
+        if user_id and getattr(config, 'tokenstore', None):
+            target = os.path.expanduser(config.tokenstore) + f'.{user_id}'
+        else:
+            # Fallback to global tokenstore if no user context
+            target = config.tokenstore
+
+        os.makedirs(os.path.dirname(os.path.expanduser(target)), exist_ok=True)
+        garmin.garth.dump(target)
+        print(f"Login successful! Tokens saved to: {target}")
         return garmin
 
     except GarminConnectAuthenticationError:

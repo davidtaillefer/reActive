@@ -17,8 +17,17 @@ import {
   BNavbarToggle,
   BNavbarNav,
   BNavItem,
-  BCollapse
+  BCollapse,
+  BDropdown,
+  BDropdownItem
 } from 'bootstrap-vue-next'
+
+// Ensure all fetch requests include cookies for authenticated backend routes.
+const originalFetch = window.fetch.bind(window)
+window.fetch = (input, init = {}) => {
+  const finalInit = { credentials: 'include', ...init }
+  return originalFetch(input, finalInit)
+}
 
 const app = createApp(App)
 
@@ -35,5 +44,7 @@ app.component('BNavbarToggle', BNavbarToggle)
 app.component('BNavbarNav', BNavbarNav)
 app.component('BNavItem', BNavItem)
 app.component('BCollapse', BCollapse)
+app.component('BDropdown', BDropdown)
+app.component('BDropdownItem', BDropdownItem)
 
 app.mount('#app')

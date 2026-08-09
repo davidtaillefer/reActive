@@ -20,15 +20,18 @@ def get_training_load_history(user_id, start_date=None, end_date=None, days=365)
     else:
         end_date = date.today()
 
+    # Debug: log parameters used for fetching training load
+    print(f"[perf] get_training_load_history user_id={user_id} start_date={start_date} end_date={end_date}")
     cursor.execute("""
     SELECT 
         date,
         training_load
     FROM activities
-    WHERE date >= %s AND date <= %s
+    WHERE user_id = %s AND date >= %s AND date <= %s
     ORDER BY date
-""", (start_date, end_date))
+""", (user_id, start_date, end_date))
     rows = cursor.fetchall()
+    print(f"[perf] fetched {len(rows)} training load rows for user_id={user_id}")
     cursor.close()
     conn.close()
 

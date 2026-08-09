@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import CalendarView from '../views/CalendarView.vue'
+import LoginView from '../views/LoginView.vue'
 import MapView from '../views/MapView.vue'
 import ColumnsView from '../views/ColumnsView.vue'
 import MainLayout from '../layouts/MainLayout.vue'
@@ -36,6 +37,8 @@ const routes = [
       { path: '/equipment/:id/edit', name: 'EquipmentEdit', component: EquipmentEditView}
     ]
   }
+  ,
+  { path: '/login', name: 'Login', component: LoginView }
 ]
 
 export default createRouter({
