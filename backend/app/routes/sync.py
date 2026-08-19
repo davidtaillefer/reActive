@@ -733,8 +733,11 @@ def activity_exists(start_time: datetime.datetime) -> bool:
 
 
 def ensure_temp_dir() -> Path:
+    print(f"📂 Ensuring temporary directory exists at: {config.export_dir / 'temp'}")
     temp_dir = config.export_dir / "temp"
+    print(f"📂 Temporary directory path: {temp_dir}")
     temp_dir.mkdir(parents=True, exist_ok=True)
+    print("✅ Temporary directory is ready.")
     return temp_dir
 
 
@@ -805,12 +808,15 @@ def download_activities_by_date(api: Garmin) -> list[str]:
             return downloaded_files
 
         print(f"📊 Found {len(activities)} activities to download")
-        print(f"🔍 Processing activities... {activities}")
 
         temp_dir = ensure_temp_dir()
+        print(f"📂 Temporary directory for downloads: {temp_dir}")
+        
 
         # Download each activity in multiple formats
         for activity in activities:
+            print(f"🔍 Processing activity: {activity.get('activityName', 'Unknown')}")
+
             activity_id = activity.get("activityId")
             activity_name = activity.get("activityName", "Unknown")
             start_time_str = activity.get("startTimeGMT", "")

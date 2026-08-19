@@ -11,7 +11,6 @@ frontend/scripts
 backend/venv
 backend/__pycache__
 backend/*.pyc
-backend/config.py
 backend/test_files/
 backend/data/garmin_products.json
 backend/your_data
