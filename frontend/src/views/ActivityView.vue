@@ -13,14 +13,16 @@
 
     <!-- Main Content Section -->
     <BRow class="g-3" style="height: calc(100vh - 300px);">
-      <BCol cols="12" lg="8" class="d-flex flex-column h-100">
+      <BCol cols="12" lg="8" class="d-flex flex-column h-100" style="min-height: 420px;">
 
         <!-- Route Map -->
-        <RouteMap v-if="metricsAvailability && metricsAvailability.position" :hrmData="hrmData" mode="load" :hoveredPoint="hoveredPoint"
-          @point-hover="onChildHover" @point-leave="onChildLeave" class="flex-grow-1 shadow-sm" />
+        <RouteMap v-if="hasRouteData && metricsAvailability && metricsAvailability.position" :key="`${activity?.id || 'activity'}-${hrmfile || 'nohrm'}`" :hrmData="hrmData" :activity="activity"
+          :climbs="climbs" :selected-climb-index="selectedClimbIndex" mode="load" :hoveredPoint="hoveredPoint"
+          @point-hover="onChildHover" @point-leave="onChildLeave" @climb-selected="onClimbSelected" class="flex-grow-1 shadow-sm"
+          style="height: 100%; min-height: 420px;" />
 
         <!-- Muscle Map -->
-        <MuscleMap v-else-if="metricsAvailability && metricsAvailability.muscles" :muscleData="muscleData" :showLegend="true" :hoveredPoint="hoveredPoint"
+        <MuscleMap v-else-if="hasMuscleData" :muscleData="muscleData" :showLegend="true" :hoveredPoint="hoveredPoint"
           @point-hover="onChildHover" @point-leave="onChildLeave" class="flex-grow-1 shadow-sm" />
 
         <!-- Fallback -->
@@ -60,6 +62,11 @@
                 icon-color="text-warning" />
             </BCol>
           </BRow>
+
+          <div class="mt-3">
+            <ClimbProfileCard v-if="climbs.length" :activity="activity" :hrmData="hrmData" :selected-index="selectedClimbIndex"
+              @climb-selected="onClimbSelected" />
+          </div>
         </div>
       </BCol>
     </BRow>
@@ -105,7 +112,7 @@ import CadenceCard from '@/components/ui/CadenceCard.vue'
 import PowerCard from '@/components/ui/PowerCard.vue'
 import ActivityLapsTable from '@/components/ui/ActivityLapsTable.vue'
 import ActivitySetsTable from '@/components/ui/ActivitySetsTable.vue'
-
+import ClimbProfileCard from '@/components/ui/ClimbProfileCard.vue'
 
 
 const route = useRoute()
@@ -122,11 +129,24 @@ const sportPace = ref(null)
 const hrmData = ref([]) // Initialize as an array to hold multiple HRM datasets if needed
 const muscleData = ref(null)
 const hrmfile = ref(activity.value.hrmfile || '')
+const normalizeClimbs = (source) => {
+  if (!source) return []
+  if (Array.isArray(source)) return source.filter(Boolean)
+  if (typeof source === 'object') {
+    return Object.values(source).filter(Boolean)
+  }
+  return []
+}
+const climbs = computed(() => {
+  const source = activity.value?.climbs ?? hrmData.value?.[0]?.climbs ?? []
+  return normalizeClimbs(source)
+})
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
 
 // Hover sync state (parent-managed)
 const hoveredPoint = ref(null)
+const selectedClimbIndex = ref(0)
 
 // Simple debounce implementation
 function debounce(fn, wait) {
@@ -142,6 +162,11 @@ function debounce(fn, wait) {
 const setHover = debounce((p) => { hoveredPoint.value = p }, 32)
 function onChildHover(payload) { setHover(payload) }
 function onChildLeave() { setHover.cancel(); hoveredPoint.value = null }
+function onClimbSelected(payload) {
+  if (payload && Number.isInteger(payload.index) && payload.index >= 0) {
+    selectedClimbIndex.value = payload.index
+  }
+}
 
 async function loadSports() {
   try {
@@ -198,6 +223,19 @@ onMounted(async () => {
   }
 
   await loadSports()
+})
+
+const hasRouteData = computed(() => {
+  const track = activity.value?.track ?? hrmData.value?.[0]?.track ?? hrmData.value?.track
+  if (!track) return false
+  if (Array.isArray(track)) return track.length > 0
+  if (typeof track === 'object') return Object.keys(track).length > 0
+  return false
+})
+
+const hasMuscleData = computed(() => {
+  const muscles = muscleData.value ?? hrmData.value?.[0]?.muscles
+  return !!muscles && Object.keys(muscles).length > 0
 })
 
 const metricsAvailability = computed(() => {

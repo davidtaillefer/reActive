@@ -19,6 +19,7 @@ const routes = [
     path: '/',
     component: MainLayout,
     children: [
+      { path: '/login', name: 'Login', component: LoginView },
       { path: '', name: 'Calendar', component: CalendarView },
       { path: 'map', name: 'Map', component: MapView },
       { path: 'dashboard', name: 'Dashboard', component: DashboardView },
@@ -37,8 +38,6 @@ const routes = [
       { path: '/equipment/:id/edit', name: 'EquipmentEdit', component: EquipmentEditView}
     ]
   }
-  ,
-  { path: '/login', name: 'Login', component: LoginView }
 ]
 
 export default createRouter({

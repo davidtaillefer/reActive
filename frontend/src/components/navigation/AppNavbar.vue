@@ -10,6 +10,7 @@
       <!-- Nav items -->
       <BCollapse id="nav-collapse" is-nav>
         <BNavbarNav class="align-items-center">
+          <BNavItem to="/login" tag="router-link">Login</BNavItem>
           <BNavItem to="/dashboard" tag="router-link">Dashboard</BNavItem>
           <BNavItem :to="{ name: 'Calendar', query: route.query }" tag="router-link">
             Calendar

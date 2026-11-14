@@ -1,10 +1,12 @@
 # 🏃‍♂️ reActive
 
-A self hosted fitness tracking and visualization app that reads **FIT, TCX (and future GPX)** files and transforms them into a **unified, normalized data model** for analysis and visualization.
+A self hosted fitness tracking and visualization app that reads **FIT, TCX (and future GPX)** files and displays them for analysis and visualization.
 
 I began working on this app years ago as I was unhappy with the original desktop Garmin app that came with my Forerunner 305 (ie. there was no Linux version available). Over the years I tried a few desktop alternatives, and about 2015 I built my own using php for the api and javasctipt and Backbone for the browser-based user interface. I evenually migrated the backend to a python/Flask architecture. Recently, I had some changes I wanted to make and decided to move away from Backbone, settling on Vue 3.
 
 The app was originally meant to move away from storing personal fitness data on Garmin's cloud service. It can still do so, but I have recently implemented reading of data from the Garmin api as well.
+
+This Readme file is a work in progress. Much of it is just an AI generated summary, but I will eventually get it in shape. The application however is fully functioning but relies on an existing MariaDB database I have been using for years. There is a second docker compose file that should generate a blank database with all the required tables, but I have yet to test that out.
 
 ---
 
@@ -12,18 +14,22 @@ The app was originally meant to move away from storing personal fitness data on 
 
 ## 🎥 Screenshots & Demo
 
+
 ### 🗺️ Route Map with Metric Colouring
 
 Visualize activities with dynamic colouring based on grade, heart rate, speed, or power.
 
 ![Route Map Demo](./docs/gifs/route-map.gif)
 
+### Climb Analysis
+
+The application has climb analysis functions for sports that involve significant elevation gain. Climbs are identified automatically and the start and extent of the climb marked on the route map for the activity. A climb profile graph is also shown for activities with climbs. This card shows the climb profile, colour coded by grade percentage, along with the cycling climb category, average grade, and maximum grade. The user can scroll through the climbs and the map will synchronize to show the geographic extent of each climb as it is viewed in the climb profile card.
+
 ---
 
 ## Equipment Usage and Maintenance Management
 
-This page allows you to manage your sports equipment. For consumable items like shoes you can set a like span and the app will track usage and let you know when the life of the item is up. This is very important for items like running shoes 
-in order to prevent injury. For items like bikes, a maintenance tracker function is available so you can keep track of what has been done on the item and when. The life of the item can be set based on the service life of a key component. For instance on a bicycle you could track the service life of your tires or chain to know when to inspect them for possible replacement.
+This page allows you to manage your sports equipment. For consumable items like shoes you can set a life span and the app will track usage and let you know when the life of the item is up. This is very important for items like running shoes in order to prevent injury. For items like bikes, a maintenance tracker function is available so you can keep track of what has been done on the item and when. The life of the item can be set based on the service life of a key component. For instance on a bicycle you could track the service life of your tires or chain to know when to inspect them for possible replacement.
 
 ### ❤️ Heart Rate Zones
 

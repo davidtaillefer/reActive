@@ -17,6 +17,7 @@
 import { computed } from 'vue'
 import { Bar } from 'vue-chartjs'
 import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale } from 'chart.js'
+import { POWER_ZONE_COLOURS } from '@/utils/metricColours'
 import MetricCard from './MetricCard.vue'
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
@@ -35,16 +36,7 @@ const hasData = computed(() =>
   Array.isArray(zones.value) && zones.value.length > 0
 )
 
-const pwrColours = [
-  '#add8e6', // Zone 0 - pale blue
-  '#007bff', // Zone 1 - blue
-  '#28a745', // Zone 2 - green
-  '#ffc107', // Zone 3 - yellow
-  '#fd7e14', // Zone 4 - orange
-  '#dc3545', // Zone 5 - red
-  '#8b0000', // Zone 6 - dark red
-  '#800080'  // Zone 7 - purple
-];
+const pwrColours = POWER_ZONE_COLOURS;
 const chartData = computed(() => {
   if (!zones.value.length) return { labels: [], datasets: [] }
   //const timeData = zones.value.time_in_power_zone || []

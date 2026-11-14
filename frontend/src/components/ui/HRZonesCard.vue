@@ -10,6 +10,7 @@
 import { computed } from 'vue'
 import { Bar } from 'vue-chartjs'
 import { Chart as ChartJS, Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale } from 'chart.js'
+import { HR_ZONE_COLOURS } from '@/utils/metricColours'
 import MetricCard from './MetricCard.vue'
 
 ChartJS.register(Title, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
@@ -66,13 +67,7 @@ const hasData = computed(() =>
   Array.isArray(zones.value) && zones.value.length > 0
 )
 
-const hrColours = [
-  '#007bff', // Zone 1 - blue
-  '#28a745', // Zone 2 - green
-  '#ffc107', // Zone 3 - yellow
-  '#fd7e14', // Zone 4 - orange
-  '#dc3545'  // Zone 5 - red
-];
+const hrColours = HR_ZONE_COLOURS;
 
 const chartData = computed(() => {
   if (!finalZones.value.length) return { labels: [], datasets: [] };

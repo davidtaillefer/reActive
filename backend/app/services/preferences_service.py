@@ -15,6 +15,7 @@ def get_preferences(db, user_uuid):
         return {
             "units": "metric",
             "default_colour_mode": "none",
+            "climb_focus_sync": True,
             "max_hr": None,
             "resting_hr": None,
             "ftp": None,

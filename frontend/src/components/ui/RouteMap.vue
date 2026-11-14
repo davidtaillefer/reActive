@@ -1,6 +1,7 @@
 <template>
-  <div class="map-wrapper">
-    <div ref="mapContainer" class="map-container" :style="{ height }"></div>
+  <div class="map-wrapper" :style="{ height: resolvedHeight }">
+    <button type="button" class="map-reset-button" @click="resetMapView">Reset view</button>
+    <div ref="mapContainer" class="map-container" :style="{ height: resolvedHeight }"></div>
     <div v-if="showLegend" class="map-legend">
         <select v-model="colourMode">
           <option value="none">Solid</option>
@@ -28,21 +29,34 @@
 <script setup>
 import { onMounted, ref, watch, nextTick, onUnmounted, toRaw, computed } from 'vue'
 import { findNearestPoint } from '@/composables/useHoverMatch'
+import { getGradeColor, sanitizeTrackPoints } from '@/utils/climbUtils'
+import { getMetricColour as getZoneMetricColour, getMetricLegendStops } from '@/utils/metricColours'
+import { usePreferencesStore } from '@/stores/preferences'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
 const colourMode = ref('none')
 const metricBounds = ref({ min: null, max: null })
 const available = ref({ hr: false, speed: false, power: false })
+const metricContext = ref({ max_hr: null, ftp: null })
+const preferences = usePreferencesStore()
 
 const props = defineProps({
   hrmData: [Object, Array], // Support both single object or array
-  height: { type: String, default: '100%' },
+  activity: { type: Object, default: null },
+  climbs: { type: Array, default: () => [] },
+  height: { type: String, default: '420px' },
   showLegend: { type: Boolean, default: true },
-  hoveredPoint: { type: Object, default: null }
+  hoveredPoint: { type: Object, default: null },
+  selectedClimbIndex: { type: Number, default: null },
+  showClimbIndicators: { type: Boolean, default: true },
+  showClimbMarkers: { type: Boolean, default: true },
+  showClimbExtent: { type: Boolean, default: true }
 });
 
-const emit = defineEmits(['point-hover','point-leave'])
+const resolvedHeight = computed(() => props.height || '420px')
+
+const emit = defineEmits(['point-hover','point-leave','climb-selected'])
 
 const mapContainer = ref(null);
 let map = null;
@@ -51,6 +65,7 @@ let fullTrack = []
 let hoverMarker = null
 let pendingPolylines = []
 let tileLayer = null
+let hasAppliedInitialBounds = false
 
 const addOrQueue = (pl) => {
   try {
@@ -64,25 +79,47 @@ const addOrQueue = (pl) => {
   }
 }
 
+const normalizeClimbs = (source) => {
+  if (!source) return []
+  if (Array.isArray(source)) return source.filter(Boolean)
+  if (typeof source === 'object') {
+    return Object.values(source).filter(Boolean)
+  }
+  return []
+}
+
 const initMap = () => {
   if (!mapContainer.value || map) return;
+
+  const explicitHeight = Number.parseInt(props.height, 10)
+  const fallbackMinHeight = Number.isFinite(explicitHeight) && explicitHeight > 0 ? explicitHeight : 160
+  const parentHeight = mapContainer.value.parentElement?.clientHeight || fallbackMinHeight
+  const targetHeight = Math.max(fallbackMinHeight, Math.round(parentHeight))
+  mapContainer.value.style.height = `${targetHeight}px`
+
   map = L.map(mapContainer.value, {
     zoomControl: true,
     attributionControl: false,
-    preferCanvas: true
+    preferCanvas: true,
+    worldCopyJump: false,
+    fadeAnimation: true
   });
-  // ensure a sensible initial view so tileLayer knows what to load
-  try { map.setView([0,0], 2) } catch(e) {}
+
   tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
   tileLayer.addTo(map);
   polylineGroup.addTo(map);
+  map.whenReady(() => {
+    setTimeout(() => map?.invalidateSize(), 50)
+  })
   // (debug probes removed)
   // flush pending polylines when map is ready
   try {
     if (map && typeof map.whenReady === 'function') {
       map.whenReady(() => {
         try {
-          try { map.invalidateSize() } catch(e){}
+          requestAnimationFrame(() => {
+            try { map.invalidateSize() } catch(e){}
+          })
           pendingPolylines.forEach(p => { try { p.addTo(polylineGroup) } catch(e){} })
           pendingPolylines = []
         } catch (e) { /* ignore */ }
@@ -108,19 +145,8 @@ const initMap = () => {
   setTimeout(() => {
     try { pendingPolylines.forEach(p => { try { p.addTo(polylineGroup) } catch(e){} }); pendingPolylines = [] } catch(e){}
   }, 500)
-  // Ensure the map has a sensible initial view so tiles start loading.
-  try {
-    if (!map.getCenter || !map.getZoom) {
-      map.setView([0, 0], 2)
-    } else {
-      // if map at 0/0, leave it; otherwise keep existing
-      const c = map.getCenter()
-      if (!c || (c.lat === 0 && c.lng === 0)) map.setView([0,0], 2)
-    }
-  } catch (e) { /* ignore */ }
-
   // trigger a resize/invalidation in case container sizes changed
-  setTimeout(() => { try { map.invalidateSize() } catch(e){/*ignore*/} }, 300)
+  setTimeout(() => { try { requestAnimationFrame(() => map?.invalidateSize()) } catch(e){/*ignore*/} }, 300)
 
   // (removed verbose debug logs)
 
@@ -153,98 +179,202 @@ const initMap = () => {
   })
 };
 
+const buildRouteBounds = (points) => {
+  const coords = sanitizeTrackPoints(points)
+    .map((point) => [Number(point.position_lat), Number(point.position_long)])
+
+  if (coords.length < 2) return null
+  return L.latLngBounds(coords)
+}
+
+const resetMapView = () => {
+  if (!map || !fullTrack.length) return
+
+  const routeBounds = buildRouteBounds(fullTrack)
+  if (!routeBounds || !routeBounds.isValid || !routeBounds.isValid()) return
+
+  map.fitBounds(routeBounds, { padding: [25, 25], maxZoom: 16 })
+}
+
+const shouldShowClimbMarkers = computed(() => props.showClimbIndicators !== false && props.showClimbMarkers !== false)
+const shouldShowClimbExtent = computed(() => props.showClimbIndicators !== false && props.showClimbExtent !== false && colourMode.value === 'none')
+
+const drawClimbHighlights = (trackArray, climbList) => {
+  if (!trackArray?.length || !Array.isArray(climbList) || !climbList.length) return
+  if (!shouldShowClimbMarkers.value && !shouldShowClimbExtent.value) return
+
+  climbList.forEach((climb, idx) => {
+    const startIndex = Number(climb.start_index ?? 0)
+    const endIndex = Number(climb.end_index ?? startIndex)
+    const subset = trackArray.slice(Math.max(0, startIndex), Math.min(trackArray.length, endIndex + 1))
+    if (subset.length < 2) return
+
+    const sanitizedSubset = sanitizeTrackPoints(subset)
+    const climbLatLngs = sanitizedSubset
+      .map((point) => [Number(point.position_lat), Number(point.position_long)])
+
+    if (climbLatLngs.length < 2) return
+
+    const colour = getGradeColor(Number(climb.avg_grade_pct ?? 0))
+
+    if (shouldShowClimbExtent.value) {
+      const highlight = L.polyline(climbLatLngs, {
+        color: colour,
+        weight: 7,
+        opacity: 0.95,
+        lineCap: 'round',
+        lineJoin: 'round',
+        className: 'climb-highlight-line'
+      })
+
+      highlight.bindTooltip(`Climb ${idx + 1}: ${Number(climb.avg_grade_pct ?? 0).toFixed(1)}% avg grade`)
+      addOrQueue(highlight)
+    }
+
+    if (!shouldShowClimbMarkers.value) return
+
+    const startPoint = sanitizedSubset[0]
+    const startLat = Number(startPoint.position_lat)
+    const startLon = Number(startPoint.position_long)
+    if (!Number.isFinite(startLat) || !Number.isFinite(startLon)) return
+
+    const startMarker = L.marker([startLat, startLon], {
+      icon: L.divIcon({
+        className: 'climb-start-icon',
+        html: `<div class="climb-start-marker" style="--marker-color:${colour};"><span>⛰</span></div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      }),
+      keyboard: false,
+    })
+
+    startMarker.on('click', () => {
+      if (!map) return
+
+      // if (preferences.climbFocusSync) {
+      const climbBounds = L.latLngBounds(climbLatLngs)
+      if (climbBounds.isValid && climbBounds.isValid()) {
+        map.fitBounds(climbBounds, { padding: [30, 30], maxZoom: 16 })
+      }
+
+      emit('climb-selected', {
+        index: idx,
+        climb,
+        startIndex,
+        endIndex,
+        latlngs: climbLatLngs,
+      })
+      // }
+    })
+
+    startMarker.bindTooltip(`Climb ${idx + 1} start`)
+    addOrQueue(startMarker)
+  })
+}
+
 const drawRoute = () => {
   try {
-    if (!map || !props.hrmData) return;
+    if (!map) return;
 
-    // If the Leaflet map hasn't finished initializing its internal bounds/state,
-    // defer drawing until it's ready to avoid Bounds-related runtime errors.
-    
+    const sourceActivities = []
+    if (Array.isArray(props.hrmData)) {
+      sourceActivities.push(...props.hrmData.filter(Boolean))
+    } else if (props.hrmData) {
+      sourceActivities.push(props.hrmData)
+    }
+    if (props.activity && !sourceActivities.includes(props.activity)) {
+      sourceActivities.push(props.activity)
+    }
+    if (!sourceActivities.length) return
 
-    // RouteMap.drawRoute starting
+    const validSourceTracks = sourceActivities
+      .map((activityEntry) => activityEntry?.track ?? activityEntry?.hrmData?.track)
+      .filter((track) => track && (Array.isArray(track) || typeof track === 'object'))
 
-    // 1. Clear existing routes before redrawing
-    polylineGroup.clearLayers();
+    const routeTrackSets = validSourceTracks
+      .map((rawTrack) => sanitizeTrackPoints(Array.isArray(rawTrack) ? rawTrack : Object.values(toRaw(rawTrack) || {})))
+      .filter((track) => track.length >= 2)
 
-  // 2. Normalize data to an array
-  const activitiesToDraw = Array.isArray(props.hrmData) ? props.hrmData : [props.hrmData];
+    if (!routeTrackSets.length) return
 
-  activitiesToDraw.forEach((activity, ai) => {
-    const rawTrack = activity?.track
-    if (!rawTrack) return
+    fullTrack = routeTrackSets.flat()
 
-    // keep full unsampled track for matching
-    fullTrack = Object.values(toRaw(rawTrack))
+    const climbSource = normalizeClimbs(
+      props.climbs?.length ? props.climbs : (props.activity?.climbs ?? sourceActivities[0]?.climbs ?? [])
+    )
 
-    const trackArray = downsample(fullTrack, 5)
-      .filter(p => p.position_lat != null && p.position_long != null)
-
-    // detect available metrics for this track so selector can be enabled
-    detectAvailableMetrics(trackArray, activity)
-
-    // RouteMap: activity index and track lengths
-
-    if (trackArray.length < 2) return
+    const currentActivity = sourceActivities[0]
+    detectAvailableMetrics(fullTrack, currentActivity)
 
     if (colourMode.value === 'none') {
-      const latlngs = trackArray
-        .map(p => [Number(p.position_lat), Number(p.position_long)])
-        .filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon))
+      for (const track of routeTrackSets) {
+        const trackArray = downsample(track, 5)
+        if (trackArray.length < 2) continue
 
-      if (latlngs.length >= 2) {
-        try {
-          const poly = L.polyline(latlngs, {
-            color: 'red',
-            weight: 3,
-            opacity: 0.7
-          })
+        const latlngs = trackArray
+          .map((point) => [Number(point.position_lat), Number(point.position_long)])
+          .filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon))
 
-          // validate resolved latlngs from Leaflet before adding
-          const pts = (poly.getLatLngs && typeof poly.getLatLngs === 'function') ? poly.getLatLngs() : []
-          const flat = (arr) => arr.flat ? arr.flat(Infinity) : arr.reduce((acc, a) => acc.concat(a), [])
-          const validated = flat(pts || []).filter(l => l && Number.isFinite(l.lat) && Number.isFinite(l.lng))
+        if (latlngs.length >= 2) {
+          try {
+            const poly = L.polyline(latlngs, {
+              color: 'red',
+              weight: 3,
+              opacity: 0.7
+            })
+
+            const pts = (poly.getLatLngs && typeof poly.getLatLngs === 'function') ? poly.getLatLngs() : []
+            const flat = (arr) => arr.flat ? arr.flat(Infinity) : arr.reduce((acc, item) => acc.concat(item), [])
+            const validated = flat(pts || []).filter((latLng) => latLng && Number.isFinite(latLng.lat) && Number.isFinite(latLng.lng))
+
             if (validated.length >= 2) {
-            addOrQueue(poly)
-            // polyline added
-          } else {
-            console.error('RouteMap: skipping polyline with invalid resolved latlngs', { latlngs, resolved: pts })
+              addOrQueue(poly)
+            }
+          } catch (e) {
+            console.error('RouteMap: failed to create/add polyline', e, { latlngs })
           }
-        } catch (e) {
-          console.error('RouteMap: failed to create/add polyline', e, { latlngs })
         }
       }
     } else {
-      // Draw coloured segments for the chosen metric (hr/speed/power/grade).
-      computeMetricBounds(trackArray, colourMode.value)
+      const metricTracks = routeTrackSets.map((track) => downsample(track, 5))
+      const allMetricValues = metricTracks.flatMap((trackArray) => trackArray.map((point) => getMetricValue(point, colourMode.value)).filter((value) => value != null && !Number.isNaN(value)))
+      if (allMetricValues.length) {
+        metricBounds.value = {
+          min: Math.min(...allMetricValues),
+          max: Math.max(...allMetricValues),
+        }
+      }
 
-      const pts = trackArray
-        .map(p => ({
-          lat: Number(p.position_lat),
-          lon: Number(p.position_long),
-          elev: p.elevation != null ? Number(p.elevation) : (p.altitude || null),
-          raw: p
-        }))
-        .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon))
+      for (const trackArray of metricTracks) {
+        if (trackArray.length < 2) continue
 
-      if (pts.length >= 2) {
+        const pts = trackArray
+          .map((point) => ({
+            lat: Number(point.position_lat),
+            lon: Number(point.position_long),
+            elev: point.enhanced_altitude != null
+              ? Number(point.enhanced_altitude)
+              : (point.elevation != null ? Number(point.elevation) : (point.altitude ?? null)),
+            raw: point
+          }))
+          .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon))
+
+        if (pts.length < 2) continue
+
         try {
-          // Build segments and group contiguous segments with the same colour
           const groups = []
           let currentGroup = null
 
           for (let i = 0; i < pts.length - 1; i++) {
             const a = pts[i]
             const b = pts[i + 1]
-            // skip degenerate segments
             if (a.lat === b.lat && a.lon === b.lon) continue
 
-            // compute metric value for this segment
             let metricVal = null
             if (colourMode.value === 'grade') {
-              // approximate grade = (delta_elev / horizontal_distance) * 100
               if (a.elev != null && b.elev != null) {
-                const d = L.latLng(a.lat, a.lon).distanceTo(L.latLng(b.lat, b.lon))
-                if (d > 0) metricVal = ((b.elev - a.elev) / d) * 100
+                const distance = L.latLng(a.lat, a.lon).distanceTo(L.latLng(b.lat, b.lon))
+                if (distance > 0) metricVal = ((b.elev - a.elev) / distance) * 100
               }
             } else {
               const v1 = getMetricValue(a.raw, colourMode.value)
@@ -255,11 +385,9 @@ const drawRoute = () => {
 
             const colour = getMetricColour(colourMode.value, metricVal, metricBounds.value.min, metricBounds.value.max)
 
-            // if currentGroup exists and colour matches, extend it
             if (currentGroup && currentGroup.colour === colour) {
               currentGroup.latlngs.push([b.lat, b.lon])
             } else {
-              // finish previous
               if (currentGroup) groups.push(currentGroup)
               currentGroup = { colour, latlngs: [[a.lat, a.lon], [b.lat, b.lon]] }
             }
@@ -267,38 +395,36 @@ const drawRoute = () => {
 
           if (currentGroup) groups.push(currentGroup)
 
-          // Add grouped polylines to layer group
-          for (const g of groups) {
-            const pl = L.polyline(g.latlngs, { color: g.colour, weight: 4, opacity: 0.95 })
-            addOrQueue(pl)
+          for (const group of groups) {
+            const polyline = L.polyline(group.latlngs, { color: group.colour, weight: 4, opacity: 0.95 })
+            addOrQueue(polyline)
           }
-
-          // segmented polylines added
         } catch (e) {
           console.error('RouteMap: failed to create segmented polylines', e)
         }
       }
     }
-  })
 
-  // 3. Attempt to center/zoom map on route using fitBounds. Use a short
-  // timeout and invalidateSize first so Leaflet has correct pane sizes.
-  try {
-    const layers = polylineGroup.getLayers()
-    if (layers.length > 0) {
-      setTimeout(() => {
-        try {
-          try { map.invalidateSize() } catch(e){}
-          const bounds = polylineGroup.getBounds && typeof polylineGroup.getBounds === 'function' ? polylineGroup.getBounds() : null
-          if (bounds && bounds.isValid && bounds.isValid()) {
-            map.fitBounds(bounds, { padding: [20, 20], maxZoom: 16 })
+    drawClimbHighlights(fullTrack, climbSource)
+
+    try {
+      const routeBounds = buildRouteBounds(fullTrack)
+      if (routeBounds && !hasAppliedInitialBounds) {
+        setTimeout(() => {
+          try {
+            map.invalidateSize()
+            if (routeBounds.isValid && routeBounds.isValid()) {
+              map.fitBounds(routeBounds, { padding: [25, 25], maxZoom: 16 })
+              hasAppliedInitialBounds = true
+            }
+          } catch (e) {
+            console.error('RouteMap: fitBounds failed', e)
           }
-        } catch (e) {
-          console.error('RouteMap: fitBounds failed', e)
-        }
-      }, 80)
+        }, 80)
+      }
+    } catch (e) {
+      console.error('RouteMap: center/fitBounds wrapper failed', e)
     }
-  } catch (e) { console.error('RouteMap: center/fitBounds wrapper failed', e) }
   } catch (err) {
     console.error('RouteMap.drawRoute error', err)
   }
@@ -349,6 +475,10 @@ const getMetricValue = (pt, metric) => {
     return v
   }
 
+  if (metric === 'grade') {
+    return tryKeys(['grade_smooth', 'grade', 'avg_grade', 'grade_pct'])
+  }
+
   return null
 }
 
@@ -373,35 +503,37 @@ const detectAvailableMetrics = (trackArray, activity) => {
       speed: !!metrics.speed,
       power: !!metrics.power,
     }
-    return
+  } else {
+    const hr = trackArray.some(p => getMetricValue(p, 'hr') != null)
+    const speed = trackArray.some(p => getMetricValue(p, 'speed') != null)
+    const power = trackArray.some(p => getMetricValue(p, 'power') != null)
+    available.value = { hr, speed, power }
   }
 
-  // Fallback: inspect track points
-  const hr = trackArray.some(p => getMetricValue(p, 'hr') != null)
-  const speed = trackArray.some(p => getMetricValue(p, 'speed') != null)
-  const power = trackArray.some(p => getMetricValue(p, 'power') != null)
-  available.value = { hr, speed, power }
+  metricContext.value = {
+    max_hr: activity?.hr_zones?.max_hr ?? activity?.max_heart_rate ?? null,
+    ftp: activity?.power_zones?.ftp ?? null,
+  }
 }
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
 
-const interp = (a, b, t) => a + (b - a) * t
+const getMetricColour = (metric, val) => {
+  if (val == null) return '#999'
 
-const rgb = (r, g, b) => `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`
-
-// Map metric value into a blue->yellow->red gradient
-const getMetricColour = (metric, val, min, max) => {
-  if (val == null || min == null || max == null || min === max) return '#999'
-  const t = clamp((val - min) / (max - min), 0, 1)
-  if (t < 0.5) {
-    const tt = t / 0.5
-    // blue -> yellow
-    return rgb(interp(0, 255, tt), interp(150, 255, tt), interp(255, 0, tt))
-  } else {
-    const tt = (t - 0.5) / 0.5
-    // yellow -> red
-    return rgb(interp(255, 255, tt), interp(255, 200, tt), interp(0, 0, tt))
+  const options = {}
+  if (metric === 'hr' && metricContext.value.max_hr != null) {
+    options.max_hr = metricContext.value.max_hr
   }
+  if (metric === 'power' && metricContext.value.ftp != null) {
+    options.ftp = metricContext.value.ftp
+  }
+
+  if (metric === 'grade') {
+    return getGradeColor(Number(val), -10, 10)
+  }
+
+  return getZoneMetricColour(metric, Number(val), options)
 }
 
 const formatMetric = (metric, v) => {
@@ -412,28 +544,53 @@ const formatMetric = (metric, v) => {
   return String(v)
 }
 
-const legendGradientStyle = computed(() => ({
-  background: 'linear-gradient(to right, blue, yellow, red)'
-}))
+const legendGradientStyle = computed(() => {
+  const metric = colourMode.value === 'none' ? 'hr' : colourMode.value
+  const stops = getMetricLegendStops(metric)
+  return {
+    background: `linear-gradient(to right, ${stops.join(', ')})`
+  }
+})
 
 const legendMinLabel = computed(() => formatMetric(colourMode.value, metricBounds.value.min))
 const legendMaxLabel = computed(() => formatMetric(colourMode.value, metricBounds.value.max))
 
 onMounted(() => {
-  initMap();
+  nextTick(() => {
+    const hasTrack = Array.isArray(props.hrmData)
+      ? props.hrmData.some((entry) => (entry?.track && (Array.isArray(entry.track) || typeof entry.track === 'object')))
+      : !!(props.hrmData?.track || props.activity?.track)
 
-  drawRoute();
-  // Final safeguard for tiles
-  setTimeout(() => map?.invalidateSize(), 500);
+    if (hasTrack) {
+      initMap();
+      drawRoute();
+      requestAnimationFrame(() => map?.invalidateSize())
+      setTimeout(() => map?.invalidateSize(), 500);
+    }
+  });
 });
 
 // Watch for data changes (e.g. when the API fetch finishes)
 watch(
-  () => props.hrmData?.length,
+  () => [props.hrmData, props.activity],
   () => {
-    if (!map) initMap();
-    drawRoute();
-  }
+    const hasTrack = Array.isArray(props.hrmData)
+      ? props.hrmData.some((entry) => (entry?.track && (Array.isArray(entry.track) || typeof entry.track === 'object')))
+      : !!(props.hrmData?.track || props.activity?.track)
+
+    if (!hasTrack) return
+
+    hasAppliedInitialBounds = false
+
+    nextTick(() => {
+      if (!map) initMap();
+      if (map) {
+        requestAnimationFrame(() => map.invalidateSize())
+      }
+      drawRoute();
+    })
+  },
+  { immediate: true, deep: true }
 );
 
 // Respond to hoveredPoint updates from parent
@@ -461,6 +618,30 @@ watch(colourMode, () => {
   drawRoute()
 })
 
+watch(
+  () => props.selectedClimbIndex,
+  (nextIndex) => {
+    if (!map || !Number.isInteger(nextIndex) || nextIndex < 0 || !Array.isArray(props.climbs) || props.climbs.length === 0) return
+
+    const climb = props.climbs[nextIndex]
+    if (!climb) return
+
+    const startIndex = Number(climb.start_index ?? 0)
+    const endIndex = Number(climb.end_index ?? startIndex)
+    const subset = fullTrack.slice(Math.max(0, startIndex), Math.min(fullTrack.length, endIndex + 1))
+    const sanitizedSubset = sanitizeTrackPoints(subset)
+    const climbLatLngs = sanitizedSubset.map((point) => [Number(point.position_lat), Number(point.position_long)])
+
+    if (climbLatLngs.length < 2) return
+
+    const bounds = L.latLngBounds(climbLatLngs)
+    if (bounds.isValid && bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 })
+    }
+  },
+  { immediate: true }
+)
+
 onUnmounted(() => {
   if (map) map.remove();
 });
@@ -479,13 +660,38 @@ const downsample = (arr, step = 5) => {
 
 .map-wrapper {
   position: relative;
-  height: 100%;
   width: 100%;
+  height: 100%;
+  min-height: 160px;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.map-reset-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #1f2937;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 7px 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 }
 
 .map-container {
   width: 100%;
   height: 100%;
+  min-height: 160px;
+}
+
+:deep(.leaflet-container) {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .map-legend {
@@ -500,6 +706,26 @@ const downsample = (arr, step = 5) => {
   border-radius: 6px;
   font-size: 12px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+}
+
+:deep(.climb-start-icon) {
+  background: transparent;
+  border: none;
+}
+
+:deep(.climb-start-marker) {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.95);
+  background: rgba(255,255,255,0.94);
+  color: var(--marker-color);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
 }
 
 

@@ -1,1 +1,1 @@
-from .models import Record, Lap, Session, Activity, Length, Set
+from .models import Record, Lap, Session, Activity, Length, Set, Climb

@@ -94,6 +94,19 @@ class Set:
     exercise_category: Optional[str] = None
     subtype: Optional[int] = None
     exercise_name: Optional[str] = None
+    
+@dataclass
+class Climb:
+    start_index: int
+    end_index: int
+    start_timestamp: datetime
+    end_timestamp: datetime
+    distance_m: float
+    elevation_gain_m: float
+    avg_grade_pct: float
+    max_grade_pct: float
+    climb_score: float
+    category: str
 
 @dataclass
 class Activity:
@@ -102,6 +115,7 @@ class Activity:
     lengths: List[Length] = field(default_factory=list)
     track: List[Record] = field(default_factory=list)
     sets: List[Set] = field(default_factory=list)
+    climbs: List[Climb] = field(default_factory=list)
     
     hr_zones: Optional[Dict] = None
     power_zones: Optional[Dict] = None
@@ -138,7 +152,7 @@ class Activity:
     timezone: Optional[str] = None
 
     grade_min: Optional[float] = None
-    grade_max: Optional[float] = None     
+    grade_max: Optional[float] = None  
     
     device: Optional[str] = None
     workout_name: Optional[str] = None

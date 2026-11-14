@@ -6,6 +6,7 @@ export const usePreferencesStore = defineStore('preferences', {
 
     units: 'metric',
     defaultColourMode: 'none',
+    climbFocusSync: true,
 
     maxHr: null,
     restingHr: null,
@@ -25,8 +26,16 @@ export const usePreferencesStore = defineStore('preferences', {
       })
 
       const data = await res.json()
+      const prefs = data.preferences || {}
 
-      Object.assign(this, data.preferences)
+      Object.assign(this, {
+        ...prefs,
+        defaultColourMode: prefs.default_colour_mode ?? prefs.defaultColourMode ?? this.defaultColourMode,
+        climbFocusSync: prefs.climb_focus_sync ?? prefs.climbFocusSync ?? this.climbFocusSync,
+        maxHr: prefs.max_hr ?? prefs.maxHr ?? this.maxHr,
+        restingHr: prefs.resting_hr ?? prefs.restingHr ?? this.restingHr,
+        ftp: prefs.ftp ?? this.ftp,
+      })
       this.loaded = true
     },
 
@@ -40,6 +49,7 @@ export const usePreferencesStore = defineStore('preferences', {
         body: JSON.stringify({
           units: this.units,
           default_colour_mode: this.defaultColourMode,
+          climb_focus_sync: this.climbFocusSync,
           max_hr: this.maxHr,
           resting_hr: this.restingHr,
           ftp: this.ftp

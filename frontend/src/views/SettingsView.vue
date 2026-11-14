@@ -17,6 +17,11 @@
       <option value="power">Power</option>
     </select>
 
+    <label class="d-block mt-3">
+      <input v-model="prefs.climbFocusSync" type="checkbox" />
+      Sync climb click to map and profile
+    </label>
+
     <label>Max Heart Rate</label>
     <input type="number" v-model="prefs.maxHr" />
 

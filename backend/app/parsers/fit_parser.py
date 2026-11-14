@@ -11,7 +11,7 @@ from ..parsers.common import (
     parse_set,
     parse_session,
     parse_record)
-from ..processors import assign_records_to_laps, assign_lengths_to_laps, compute_grades, smooth_grades, build_unified_hr_zones, grade_stats, build_unified_power_zones
+from ..processors import assign_records_to_laps, assign_lengths_to_laps, build_unified_hr_zones, grade_stats, build_unified_power_zones
 from ..utils import to_local_iso, ensure_datetime
 from ..utils import get_timezone, get_device_name
 from ..utils.user_utils import get_user_uuid

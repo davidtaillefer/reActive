@@ -52,6 +52,7 @@ def activity_to_dict(a: Activity):
         "lengths": [length_to_dict(l) for l in a.lengths],
         "track": [record_to_dict(r) for r in a.track],
         "sets": [set_to_dict(s) for s in a.sets],
+        "climbs": [c.__dict__ for c in a.climbs],
         "hr_zones": a.hr_zones,
         "power_zones": a.power_zones,
 

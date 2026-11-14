@@ -36,7 +36,7 @@
 
                   <!-- 1. Check for both hrmData AND the presence of GPS points -->
                   <RouteMap v-if="workout.hrmData && workout.hrmData.metricsAvailability.position"
-                    :hrmData="[workout.hrmData]" :showLegend="false" class="h-100 w-100" />
+                    :hrmData="[workout.hrmData]" :showLegend="false" :showClimbIndicators="false" class="h-100 w-100" />
 
                   <!-- Muscle Map -->
                   <MuscleMap v-else-if="workout.hrmData && workout.hrmData.metricsAvailability.muscles"

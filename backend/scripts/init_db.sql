@@ -2109,6 +2109,7 @@ CREATE TABLE `user_preferences` (
   `user_uuid` varchar(64) NOT NULL,
   `units` varchar(10) DEFAULT 'metric',
   `default_colour_mode` varchar(20) DEFAULT 'none',
+  `climb_focus_sync` tinyint(1) DEFAULT 1,
   `max_hr` int(11) DEFAULT NULL,
   `resting_hr` int(11) DEFAULT NULL,
   `ftp` int(11) DEFAULT NULL,
