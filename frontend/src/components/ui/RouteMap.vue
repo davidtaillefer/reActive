@@ -29,7 +29,7 @@
 <script setup>
 import { onMounted, ref, watch, nextTick, onUnmounted, toRaw, computed } from 'vue'
 import { findNearestPoint } from '@/composables/useHoverMatch'
-import { getGradeColor, sanitizeTrackPoints } from '@/utils/climbUtils'
+import { getGradeColour, sanitizeTrackPoints } from '@/utils/climbUtils'
 import { getMetricColour as getZoneMetricColour, getMetricLegendStops } from '@/utils/metricColours'
 import { usePreferencesStore } from '@/stores/preferences'
 import L from 'leaflet'
@@ -215,7 +215,7 @@ const drawClimbHighlights = (trackArray, climbList) => {
 
     if (climbLatLngs.length < 2) return
 
-    const colour = getGradeColor(Number(climb.avg_grade_pct ?? 0))
+    const colour = getGradeColour(Number(climb.avg_grade_pct ?? 0))
 
     if (shouldShowClimbExtent.value) {
       const highlight = L.polyline(climbLatLngs, {
@@ -530,7 +530,7 @@ const getMetricColour = (metric, val) => {
   }
 
   if (metric === 'grade') {
-    return getGradeColor(Number(val), -10, 10)
+    return getGradeColour(Number(val), -10, 10)
   }
 
   return getZoneMetricColour(metric, Number(val), options)
