@@ -430,22 +430,22 @@ const drawRoute = () => {
   }
 };
 
-const getGradeColour = (grade) => {
-  if (grade == null) return '#999'
+// const getGradeColour = (grade) => {
+//   if (grade == null) return '#999'
 
-  // Clamp
-  const g = Math.max(-10, Math.min(10, grade))
+//   // Clamp
+//   const g = Math.max(-10, Math.min(10, grade))
 
-  // Gradient:
-  // downhill = blue, flat = yellow, uphill = red
-  if (g < 0) {
-    const t = Math.abs(g) / 10
-    return `rgb(${0}, ${Math.round(150 * (1 - t))}, ${255})`
-  } else {
-    const t = g / 10
-    return `rgb(${255}, ${Math.round(200 * (1 - t))}, ${0})`
-  }
-}
+//   // Gradient:
+//   // downhill = blue, flat = yellow, uphill = red
+//   if (g < 0) {
+//     const t = Math.abs(g) / 10
+//     return `rgb(${0}, ${Math.round(150 * (1 - t))}, ${255})`
+//   } else {
+//     const t = g / 10
+//     return `rgb(${255}, ${Math.round(200 * (1 - t))}, ${0})`
+//   }
+// }
 
 // Return a numeric value for the chosen metric from a track point
 const getMetricValue = (pt, metric) => {
